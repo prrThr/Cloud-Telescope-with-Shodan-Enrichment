@@ -1,5 +1,13 @@
 #!/usr/bin/bash
 
+##########################
+######### ATENÇÃO ########
+# Não sei como funciona esse script e não mudei a localização dos diretórios
+# Se for usar, leia atentamente e altere os caminhos para os diretórios
+# de acordo com a sua organização
+########################## 
+
+
 # This file only makes sense if you want to produce individual analyses, one per cloud region.
 # In that case, create one sub-directory for each region and place the compressed pcap of interest inside it.
 # Example: mkdir af-south-1; mv af-south-1.pcap.gz af-south-1;

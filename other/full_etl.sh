@@ -1,11 +1,10 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATASET=${1:-"datasets/e1"}
 
-#Set this to the base directory containing the scripts
-prefix=/home/fabricio/ibr-etl/
+step0="nohup"
+step1="${PROJECT_ROOT}/src/1_generate_tshark_csv.sh ${DATASET} &&"
+step2="zcat ${DATASET}/output.csv.gz | python ${PROJECT_ROOT}/src/2_enrich_csv.py | gzip > ${DATASET}/output.enriched.csv.gz &&"
+step3="zcat ${DATASET}/output.enriched.csv.gz | python ${PROJECT_ROOT}/src/3_summarize_radiation.py > ${DATASET}/output.tex"
 
-step0=' nohup '
-step1=' ${prefix}1_generate_tshark_csv.sh &&'
-step2=' zcat output.csv.gz | python3 ${prefix}2_enrich_csv.py | gzip > output.rich.csv.gz &&'
-step3=' zcat output.rich.csv.gz | python3 ${prefix}3_summarize_radiation.py > output.tex '
-
-echo $step0 $step1 $step2 $step3
+echo "$step0 $step1 $step2 $step3"

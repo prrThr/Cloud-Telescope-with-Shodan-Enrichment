@@ -1,4 +1,7 @@
 import sys
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # import seaborn as sns
 # import pandas as pd
 
@@ -315,7 +318,7 @@ print(merged_source_country_transport_layer)
 
 ### Dump raw variables to a dumpfile
 
-file="summarize_radiation_dict_dump.txt"
+file = os.path.join(PROJECT_ROOT, 'logs', 'summarize_radiation_dict_dump.txt')
 
 def dumpdict(d,dn):
     with open(file, 'a') as f:
@@ -362,4 +365,3 @@ dumpdict(count_aws_country_code_icmp, 'count_aws_country_code_icmp')
 dumpdict(count_global_stats_transport, 'count_global_stats_transport')
 dumpdict(count_global_stats_ip_sources, 'count_global_stats_ip_sources')
 dumpdict(count_global_stats_ip_destinations, 'count_global_stats_ip_destinations')
-

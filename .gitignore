@@ -9,6 +9,8 @@ GeoLite2-City.mmdb
 *.pcap
 *.pcap.gz
 
+backups
+
 # =================================================== #
 
 # Avoid committing private environment variables

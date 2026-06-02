@@ -95,6 +95,7 @@ for line in sys.stdin:
         dstport=icmptype
     else:
         protocol="unknown"
+        dstport="unknown"
     source_name="IP_" + ipsrc.replace('.','_')
     destination_name="IP_" + ipdst.replace('.','_')
     packet_event=""

@@ -1,7 +1,11 @@
+import os
 import sys
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 import geoip2.database
 #solver = geoip2.database.Reader('GeoLite2-City.mmdb') #FREE
-solver = geoip2.database.Reader('GeoIP2-City.mmdb') #LICENSED
+solver = geoip2.database.Reader(os.path.join(PROJECT_ROOT, 'GeoIP2-City.mmdb')) #LICENSED
+
 import awsipranges
 aws_ip_ranges = awsipranges.get_ranges()
 
@@ -10,20 +14,20 @@ aws_ip_ranges = awsipranges.get_ranges()
 
 #ipsrcfile=open("enriched_unique_source_IPs.csv","w")
 #ipdstfile=open("enriched_unique_destination_IPs.csv","w")
-unique_ipsrc=[]
-unique_ipsrc_enriched_output=[]
-unique_ipdst=[]
-unique_ipdst_enriched_output=[]
-cachesrc={}
-cachedst={}
-cachesrchit=0
-cachesrcmiss=0
-cachedsthit=0
-cachedstmiss=0
-#cacheglobalcounter=0
-cacheinfo=open("cacheinfo.txt","w")
-anomalous_entries=open("anomalous_entries.csv","w")
-trimmed_entries=open("trimmed_entries.csv","w")
+unique_ipsrc = []
+unique_ipsrc_enriched_output = []
+unique_ipdst = []
+unique_ipdst_enriched_output = []
+cachesrc = {}
+cachedst = {}
+cachesrchit = 0
+cachesrcmiss = 0
+cachedsthit = 0
+cachedstmiss = 0
+#cacheglobalcounter = 0
+cacheinfo = open(os.path.join(PROJECT_ROOT, 'logs', 'cacheinfo.txt'), "w")
+anomalous_entries = open(os.path.join(PROJECT_ROOT, 'logs', 'anomalous_entries.csv'), "w")
+trimmed_entries = open(os.path.join(PROJECT_ROOT, 'logs', 'trimmed_entries.csv'), "w")
 
 for rawline in sys.stdin:
     # cacheglobalcounter+=1

@@ -71,16 +71,18 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # ── Espelha a estrutura real do projeto no container ─────────
 #
-#   /ibr-etl/          → raiz do projeto (montado via volume no compose)
-#   /ibr-etl/other/    → scripts auxiliares
-#   /ibr-etl/e1/       → pcap.gz raw
-#   /ibr-etl/e3/       → pcap.gz compactados
+#   /ibr-etl/               → raiz do projeto (montado via volume no compose)
+#   /ibr-etl/other/         → scripts auxiliares
+#   /ibr-etl/logs/
+#   /ibr-etl/src/           → pipeline
+#   /ibr-etl/tests/
+#   /ibr-etl/datasets/      → datasets processados (pcap.gz e csv)
+#   /ibr-etl/datasets/e1/   → pcap.gz raw
+#   /ibr-etl/datasets/e3/   → pcap.gz compactados
 #
 #   O GeoIP2-City.mmdb deve ficar na raiz /ibr-etl/
-#   (mesmo local de onde os scripts são invocados)
 
-RUN mkdir -p /ibr-etl/e1/ /ibr-etl/e3/ /ibr-etl/other
-
+RUN mkdir -p /ibr-etl/datasets/ /ibr-etl/datasets/e1/ /ibr-etl/datasets/e3/ /ibr-etl/logs/ /ibr-etl/src/ /ibr-etl/tests/ /ibr-etl/other/
 WORKDIR /ibr-etl
 
 CMD ["/bin/bash"]

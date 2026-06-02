@@ -49,6 +49,8 @@ Riscos gerenciados:
 
 import sys
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 import json
 import time
 import logging
@@ -68,7 +70,7 @@ except ImportError:
 
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 SHODAN_API_KEY = os.getenv("SHODAN_API_KEY")
 
 if not SHODAN_API_KEY:
@@ -80,11 +82,11 @@ if not SHODAN_API_KEY:
 # Configurações padrão
 # ---------------------------------------------------------------------------
 
-CACHE_FILE      = "shodan_cache.json"       # RF06 - persistência local
+CACHE_FILE      = os.path.join(PROJECT_ROOT, "logs", "shodan_cache.json") # RF06 - persistência local
 RATE_LIMIT_SEC  = 1.0                       # RNF03 - plano acadêmico: 1 req/s
 MAX_RETRIES     = 3                         # RNF04 - tentativas em falhas de rede
 RETRY_BACKOFF   = 10                        # segundos de espera na primeira retentativa
-LOG_FILE        = "shodan_enrich.log"
+LOG_FILE        = os.path.join(PROJECT_ROOT, "logs", "shodan_enrich.log")
 PROGRESS_EVERY  = 1000                      # linhas entre cada log de progresso
 
 # Nomes dos campos adicionados ao CSV (usados no modo demo e no cabeçalho)

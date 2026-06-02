@@ -13,7 +13,7 @@ services:
 
     volumes:
       # GeoIP2-City.mmdb deve ser colocado na raiz do ibr-etl
-      - .:/ibr-etl
+      - ..:/ibr-etl
 
     environment:
       MYSQL_HOST: mysql
