@@ -1,0 +1,71 @@
+services:
+
+  # ── Container principal do pipeline ──────────────────────────
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cloud-telescope-pipeline
+    hostname: pipeline
+
+    stdin_open: true
+    tty: true
+
+    volumes:
+      # GeoIP2-City.mmdb deve ser colocado na raiz do ibr-etl
+      - .:/ibr-etl
+
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: telescope
+      MYSQL_PASSWORD: telescope_pass
+      MYSQL_DATABASE: e1
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    networks:
+      - telescope-net
+
+  # ── MariaDB ──────────────────────────────────────────────────
+  mysql:
+    image: mariadb:11
+    container_name: cloud-telescope-mysql
+    hostname: mysql
+
+    restart: unless-stopped
+
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: e1
+      MYSQL_USER: telescope
+      MYSQL_PASSWORD: telescope_pass
+
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+    ports:
+      # Expõe para o host
+      - "3306:3306"
+
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost",
+             "-u", "telescope", "--password=telescope_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    networks:
+      - telescope-net
+
+# ── Volumes nomeados ─────────────────────────────────────────
+volumes:
+  mysql-data:
+    driver: local
+
+# ── Rede interna ─────────────────────────────────────────────
+networks:
+  telescope-net:
+    driver: bridge
