@@ -249,8 +249,15 @@ def query_shodan(api: shodan.Shodan, ip: str, retries: int = MAX_RETRIES) -> dic
             for cpe in service.get("cpe", []):
                 cpes.add(cpe)
 
-        # CVEs: chaves do dict 'vulns' (RF05)
-        cves = sorted(host.get("vulns", {}).keys())
+        # CVEs: a API retorna dict {CVE_ID: metadata} em planos completos,
+        # ou lista [CVE_ID, ...] em planos com acesso parcial (RF05).
+        vulns_raw = host.get("vulns", {})
+        if isinstance(vulns_raw, dict):
+            cves = sorted(vulns_raw.keys())
+        elif isinstance(vulns_raw, list):
+            cves = sorted(vulns_raw)
+        else:
+            cves = []
 
         record = {
             "found":       True,
@@ -443,19 +450,30 @@ def demo_mode(api: shodan.Shodan, ip: str, dump_json: bool = False):
     # ----------------------------------------------------------------
     # 4. CVEs (RF05) — núcleo do enriquecimento qualitativo
     # ----------------------------------------------------------------
+
     vulns = host.get("vulns", {})
     print(f"\n── 4. CVEs Conhecidos ({len(vulns)} encontrados) ─────────────────")
     if vulns:
-        print(f"  {'CVE ID':<20} {'CVSS':>5}  Verificado  Descrição (resumo)")
-        print(f"  {'-'*20} {'-'*5}  {'-'*10}  {'-'*40}")
-        for cve_id, cve_data in sorted(vulns.items()):
-            cvss      = cve_data.get("cvss",     "N/A")
-            verified  = "Sim" if cve_data.get("verified") else "Não"
-            summary   = cve_data.get("summary",  "")[:60]
-            refs      = len(cve_data.get("references", []))
-            print(f"  {cve_id:<20} {str(cvss):>5}  {verified:<10}  {summary}...")
-            if refs:
-                print(f"  {'':20}       {'':10}  ({refs} referências)")
+        if isinstance(vulns, dict):
+            # Plano completo: metadados detalhados disponíveis
+            print(f"  {'CVE ID':<20} {'CVSS':>5}  Verificado  Descrição (resumo)")
+            print(f"  {'-'*20} {'-'*5}  {'-'*10}  {'-'*40}")
+            for cve_id, cve_data in sorted(vulns.items()):
+                cvss      = cve_data.get("cvss",     "N/A")
+                verified  = "Sim" if cve_data.get("verified") else "Não"
+                summary   = cve_data.get("summary",  "")[:60]
+                refs      = len(cve_data.get("references", []))
+                print(f"  {cve_id:<20} {str(cvss):>5}  {verified:<10}  {summary}...")
+                if refs:
+                    print(f"  {'':20}       {'':10}  ({refs} referências)")
+        elif isinstance(vulns, list):
+            # Plano acadêmico/parcial: apenas IDs retornados, sem metadados
+            print(f"  (Plano atual retorna apenas IDs — CVSS e descrição indisponíveis)")
+            preview = sorted(vulns)[:20]
+            for cve_id in preview:
+                print(f"  {cve_id}")
+            if len(vulns) > 20:
+                print(f"  ... e mais {len(vulns) - 20} CVEs")
     else:
         print("  Nenhum CVE registrado para este IP no Shodan.")
         print("  (Nota: CVEs requerem plano acadêmico ou pago)")

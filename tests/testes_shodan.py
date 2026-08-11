@@ -13,6 +13,7 @@ if not SHODAN_API_KEY:
 
 api = shodan.Shodan(SHODAN_API_KEY)
 
+#host = api.host("176.9.30.142")  # exemplo com CVE
 host = api.host("185.220.101.1")  # exemplo: Tor exit node comum em capturas IBR
 #host = api.host("102.38.199.7")  # exemplo: Tor exit node comum em capturas IBR
 
