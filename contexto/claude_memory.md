@@ -1,36 +1,66 @@
-### Purpose & context
-Arthur is developing "Cloud Telescope," a network traffic analysis pipeline, as part of his undergraduate thesis (TCC). The project processes pcap files through an ETL pipeline, applying geographic and technical enrichment to network traffic data. The thesis formalizes this work with defined functional requirements (RF01–RF07), non-functional requirements (RNF01–RNF05), and use cases (CSU01–CSU03).
+# Memória de sessões anteriores — ibr-etl
 
-Key domain areas: network traffic analysis, packet capture processing, API integration, data enrichment, graph databases, and academic research presentation.
+> **Status:** registro histórico auxiliar, **não-canônico**. Em conflito com código,
+> testes ou documentos vivos (`AGENTS.md`, `contexto/pipeline.md`,
+> `contexto/estrutura.md`, `contexto/e1_vs_e3.md`), investigue antes de decidir.
+> Última revisão deste arquivo: 2026-08-23.
 
-### Current state
+## Propósito e contexto
 
-The pipeline (ibr-etl) has been recently reorganized for portability and replicability:
+Arthur desenvolve o "Cloud Telescope", pipeline de análise de tráfego de rede, como
+TCC de graduação. O projeto processa arquivos pcap por um ETL, aplicando
+enriquecimento geográfico e técnico aos dados de tráfego. O TCC formaliza o trabalho
+com requisitos funcionais (RF01–RF07), não funcionais (RNF01–RNF05) e casos de uso
+(CSU01–CSU03).
 
-- Pipeline scripts moved to src/, datasets to datasets/, Docker files to Docker/
-- All scripts standardized to derive PROJECT_ROOT from their own file path (via os.path.dirname pattern), eliminating dependency on working directory or cd commands
-- A Shodan enrichment module (src/6_shodan_enrich.py) has been built and validated, extending the enriched CSV with 10 Shodan-derived fields (organization, ISP, ASN, OS, open ports, CPEs, CVEs, tags, hostnames, last-seen)
+Áreas de domínio: análise de tráfego de rede, processamento de capturas de pacotes,
+integração com APIs, enriquecimento de dados, bancos de grafos e apresentação de
+pesquisa acadêmica.
 
-The pipeline flow is: 1_generate_tshark_csv.sh → 2_enrich_csv.py → 6_shodan_enrich.py → parallel consumers (3_summarize_radiation.py, 4_generate_graph.py, 5_import_mysql.py) → comparative visualizations. Steps 3–5 consume the same enriched CSV in parallel rather than sequentially.
+## Estado atual
 
-A hardcoded API key was identified as a security issue to address.
+O pipeline (ibr-etl) foi reorganizado para portabilidade e replicabilidade:
 
-### On the horizon
+- Scripts do pipeline movidos para `src/`, datasets para `datasets/`, Docker para `Docker/`.
+- Todos os scripts padronizados a derivar `PROJECT_ROOT` do próprio caminho de arquivo
+  (padrão `os.path.dirname`), eliminando dependência do diretório de trabalho ou `cd`.
+- Módulo de enriquecimento Shodan (`src/6_shodan_enrich.py`) construído e validado,
+  estendendo o CSV enriquecido com 10 campos Shodan (organização, ISP, ASN, OS,
+  portas abertas, CPEs, CVEs, tags, hostnames, last-seen).
+- Correções pós-banca registradas em `contexto/implementacoes_e_testes.md`
+  (retry limitado, cache enxuto, gravação em lote, validação IPv4, workaround tshark).
+- A API key hardcoded foi identificada e **corrigida** — segredos agora vivem em `.env`.
 
-- Comparative informational gain visualizations (planned final pipeline stage)
-- Potentially a branching pipeline diagram to better represent the parallel nature of steps 3–5
-- Full implementation of all thesis requirements beyond the current Shodan foundation
+Fluxo do pipeline: `1_generate_tshark_csv.sh` → `2_enrich_csv.py` →
+`6_shodan_enrich.py` → consumidores paralelos (`3_summarize_radiation.py`,
+`4_generate_graph.py`, `5_import_mysql.py`) → visualizações comparativas (planejadas).
+As etapas 3–5 consomem o mesmo CSV enriquecido em paralelo, não sequencialmente.
 
-### Key learnings & principles
+## No horizonte
 
-- Scripts must resolve paths relative to project root, not the working directory, to ensure cross-machine replicability
-- Shodan API credit conservation is a real constraint: caching by IP (local JSON) and rate limiting (1 req/sec default, with 429 backoff) are essential design decisions, not optional
-- The pipeline follows a consistent stdin/stdout CSV pattern across scripts, which should be preserved for new modules
-Redundant scripts (e.g., duplicate Shodan enrichment) should be consolidated rather than maintained in parallel
+- Visualizações comparativas de ganho informacional (etapa final planejada).
+- Possível diagrama ramificado do pipeline para representar o paralelismo das etapas 3–5.
+- Implementação plena de todos os requisitos do TCC além da base Shodan atual.
 
-### Tools & resources
+## Lições e princípios-chave
 
-- Core stack: Python, Bash, tshark (packet extraction), GeoLite2-City (GeoIP), Shodan API, Neo4j (Cypher graph), MySQL
-- Infrastructure: Docker / docker-compose
-- Data formats: pcap → CSV → enriched CSV (.rich.csv.gz, .shodan.gz) → Neo4j / MySQL
-- Thesis document: TCC_2.pdf used as living specification for development alignment
+- Scripts devem resolver caminhos relativos à raiz do projeto, nunca ao diretório de
+  trabalho, para garantir replicabilidade entre máquinas.
+- Conservação dos créditos da API Shodan é restrição real: cache por IP (JSON local)
+  e rate limiting (1 req/s padrão, backoff em 429) são decisões essenciais de design,
+  não opcionais.
+- O pipeline segue um padrão consistente de stdin/stdout CSV entre scripts, que deve
+  ser preservado em módulos novos.
+- Scripts redundantes devem ser consolidados, não mantidos em paralelo.
+- Datasets completos não são explorados diretamente: entende-se sua estrutura pela
+  documentação e pelas regex de nomenclatura; testes usam amostras pequenas.
+
+## Ferramentas e recursos
+
+- Stack principal: Python, Bash, tshark (extração de pacotes), GeoIP2-City (MaxMind
+  licenciada), API Shodan, Neo4j (grafo Cypher), MySQL.
+- Infraestrutura: Docker / docker-compose.
+- Formatos de dados: pcap → CSV → CSV enriquecido (`.enriched.csv.gz`, `.shodan.gz`)
+  → Neo4j / MySQL.
+- Documento de tese: `contexto/TCC_2_ArthurPereira_PosBanca.md`, usado como
+  especificação viva para alinhamento do desenvolvimento.
