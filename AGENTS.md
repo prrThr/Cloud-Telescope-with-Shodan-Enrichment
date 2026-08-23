@@ -6,45 +6,77 @@ honeypots em instâncias AWS — e as enriquece com dados geográficos (GeoIP), 
 AWS (awsipranges) e metadados OSINT (Shodan). É o projeto de TCC de Arthur Pereira, que
 estende o trabalho original do prof. Fabrício Bortoluzzi.
 
-## CRÍTICO — nunca escaneie/leia o diretório `datasets/`
+## CRÍTICO — leia `contexto/instrucoes.md` antes de modificar o projeto
 
-`datasets/` contém ~37 GiB de capturas binárias (`.pcap.gz` do `tcpdump`). São arquivos
-**opacos e binários** — você não precisa e não deve ler o conteúdo de nenhum deles.
+`contexto/instrucoes.md` contém as instruções específicas para agentes de IA trabalharem
+neste projeto.
 
-- NÃO execute `ls`, `find`, `glob`, `du`, `rg`, `read` ou qualquer outra operação que
-  liste, conte ou abra arquivos dentro de `datasets/` (nem em `datasets/e1`,
-  `datasets/e3`, nem em qualquer subdiretório criado por processamento).
-- Os arquivos já estão no `.gitignore`; as ferramentas de listagem do opencode também os
-  ignoram. Só tenha cuidado com comandos `bash` crus, que não respeitam o `.gitignore`.
-- Para entender a **estrutura/forma** dos arquivos, use:
-  - a regra de nomenclatura documentada abaixo;
-  - o parser de nomes em `src/0_select_representative_subset.py` (a regex `FILENAME_RE`);
-  - o contexto em `contexto/estrutura.md`.
-- Se um comando de leitura sobre um `.pcap.gz` for absolutamente inevitável (ex: você foi
-  instruído a inspecionar um arquivo específico), use `zcat <arquivo> | head -c <bytes>` e
-  limite a < 1 MB.
+Antes de realizar qualquer modificação significativa:
 
-### Nomenclatura dos arquivos de captura
+1. Leia `contexto/instrucoes.md`.
+2. Consulte os documentos de referência indicados nesse arquivo.
+3. Consulte `contexto/estrutura.md` para compreender a organização atual.
+4. Consulte `contexto/pipeline.md` para compreender o pipeline atual.
+5. Verifique o código existente antes de propor uma nova implementação.
+6. Não faça alterações baseadas apenas em suposições.
+
+As instruções de `contexto/instrucoes.md` complementam este arquivo.
+
+Em caso de conflito, preserve as regras de segurança, integridade dos dados e
+credenciais definidas neste `AGENTS.md`.
+
+## Datasets
+
+Os datasets estão disponíveis em:
+
+- `datasets/e1` — Dataset 1.
+- `datasets/e3` — Dataset 3.
+
+Os datasets possuem grande volume de dados e não devem ser lidos ou processados
+integralmente apenas para compreender sua estrutura.
+
+A inspeção inicial dos datasets deve seguir estritamente as regras de
+`contexto/instrucoes.md`.
+
+### Regra geral
+
+- Não leia todos os arquivos dos datasets.
+- Não percorra desnecessariamente grandes volumes de dados.
+- Não processe os datasets completos durante testes de desenvolvimento.
+- Prefira amostras pequenas e representativas.
+- Não leia ou escaneie `datasets/e1/aggregated` ou `datasets/e3/final_results`
+  sem necessidade explícita.
+
+### Nomenclatura das capturas
+
+A nomenclatura padrão é:
 
 ```
 <região>-<az>-<IP>-<YYYYMMDD>-<HHMM>.pcap.gz
 ```
 
 Exemplo: `af-south-1b-13.244.71.194-20230501-1217.pcap.gz`
-→ região `af-south-1`, AZ `b`, IP `13.244.71.194`, captura de `2023-05-01 12:17`.
 
-- No Dataset 1 (`e1`) o nome combina região+AZ diretamente: `af-south-1b-...` (região
-  `af-south-1` + AZ `b`). Veja `REGION_AZ_RE` em `src/0_select_representative_subset.py`.
-- Pode haver variantes com `-`/`_` como separadores e sufixos `.pcap.txt` (dump textual
-  do mesmo pcap).
+Representa:
+região: `af-south-1`
+Availability Zone: `b`
+IP: `13.244.71.194`
+data: `2023-05-01`
+horário: `12:17`
 
-### Datasets
 
-- `datasets/e1` — Dataset 1: ~4.600 capturas pequenas, estratificadas por região.
-- `datasets/e3` — Dataset 3: ~29 capturas agregadas por região + `final_results/` (~17 GiB
-  de resultados de processamento).
-- `datasets/e1/aggregated` e `datasets/e3/final_results` são saídas de processamento;
-  também não devem ser lidas/escaneadas.
+No Dataset 1 (`e1`), região e AZ aparecem combinadas no nome, como `af-south-1b`.
+Consulte `src/0_select_representative_subset.py`, especialmente `FILENAME_RE` e
+`REGION_AZ_RE`, quando precisar compreender ou alterar o parser dos nomes.
+
+### Coletas atuais
+
+- `datasets/e1` — Dataset 1: ~2.300 capturas brutas `.pcap.gz` (≈4.600 arquivos com os
+  `.pcap.txt`), estratificadas por região, + `aggregated/` (26 consolidados por região).
+- `datasets/e3` — Dataset 3: 26 arquivos agregados por região (`e3_<região>.pcap.gz`)
+  + `capinfos/` + `final_results/` (~17 GiB de resultados de processamento anterior).
+  `aggregated/` (e1) e `final_results/` (e3) não devem ser lidos/escaneados sem
+  necessidade explícita. Diferenças e uso: `contexto/e1_vs_e3.md`.
 
 ## Contexto do projeto (leia antes de qualquer modificação)
 
@@ -61,16 +93,17 @@ não do início ao fim.
 
 ## Estrutura do repositório
 
-- `src/` — pipeline principal (ver abaixo). Todos os scripts derivam `PROJECT_ROOT` do
-  próprio caminho; não dependem do diretório de trabalho.
-- `contexto/` — documentação/TCC.
+- `src/` — pipeline principal
+- `contexto/` — documentação, TCC e instruções do projeto
 - `other/` — utilitários auxiliares (agregação de pcaps, ETL completo, por região).
-- `backups/` — **inútil, ignore.**
-- `logs/` — saídas de log/cache de execuções (ex: `shodan_cache.db`, `cacheinfo.txt`).
+- `backups/` — **inútil, ignore completamente.**
+- `logs/` — saídas de log e cache de execuções (ex: `shodan_cache.json`, `cacheinfo.txt`).
 - `Docker/` — `Dockerfile` + `docker-compose.yml`.
-- `tests/` — testes/POCs do módulo Shodan.
+- `tests/` — testes e provas de conceito.
 - `venv/` — ambiente virtual local (ignore).
 - `GeoLite2-City.mmdb` / `GeoIP2-City.mmdb` — base MaxMind GeoIP (licenciada vs. gratuita).
+
+Todos os scripts do pipeline devem resolver caminhos relativos ao `PROJECT_ROOT` e não depender do diretório de trabalho atual.
 
 ## Pipeline
 
@@ -93,34 +126,63 @@ A etapa 6 adiciona campos nas posições 18–27 do CSV (após `awsregion`).
 ### Exemplos de execução
 
 ```sh
-python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 48 --clean
-src/1_generate_tshark_csv.sh datasets/e3_subset
-zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
-zcat datasets/e3_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz
-zcat datasets/e3_subset/output.enriched.csv.gz | python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
+python3 src/0_select_representative_subset.py datasets/e1 --output datasets/e1_subset --max-files 48 --clean
+src/1_generate_tshark_csv.sh datasets/e1_subset
+zcat datasets/e1_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e1_subset/output.enriched.csv.gz
+zcat datasets/e1_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e1_subset/output.shodan.gz
+zcat datasets/e1_subset/output.enriched.csv.gz | python src/3_summarize_radiation.py > datasets/e1_subset/output.tex
 ```
+
+> A etapa 0 exige a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`) e deve rodar
+> sobre `datasets/e1`. Os agregados do `datasets/e3` (`e3_<região>.pcap.gz`) não são
+> elegíveis para amostragem — na produção, consuma-os diretamente na etapa 1. Detalhes:
+> `contexto/e1_vs_e3.md`.
+
+## Contrato de pipeline
+- **stdin/stdout com CSV** — cada etapa lê CSV da entrada padrão e emite CSV (compactado com `gzip`) na saída padrão. Preserve isso em novos módulos.
+- Os scripts devem resolver caminhos relativos ao `PROJECT_ROOT`, nunca ao `CWD`.
 
 ## Convenções de código
 
-- Contrato de pipeline: **stdin/stdout com CSV** — cada etapa lê CSV da entrada padrão e
-  emite CSV (compactado com `gzip`) na saída padrão. Preserve isso em novos módulos.
-- Todos os scripts resolvem caminhos relativos ao `PROJECT_ROOT` (via
-  `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`), nunca ao CWD.
+- Todos os scripts resolvem caminhos relativos ao `PROJECT_ROOT` (via `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`), nunca ao `CWD`.
 - Código e comentários em português (padrão do repositório).
 - Sem comentários adicionais em código novo, a menos que solicitado.
+- Preserve o estilo e a arquitetura existentes.
+- Evite refatorações não relacionadas à tarefa solicitada.
+- Antes de criar uma nova abstração, verifique se já existe uma implementação equivalente.
+- Não altere contratos de entrada/saída sem verificar todos os consumidores afetados.
 
 ## Segurança e credenciais
 
 - `.env` contém segredos (`SHODAN_API_KEY`). NUNCA comite, logue ou exponha segredos.
-- Créditos da API Shodan são limitados: cache local por IP (`shodan_cache.db`) e
-  rate-limit (1 req/s, com backoff em 429) são decisões de design, não opcionais.
+- Créditos da API Shodan são limitados: cache local por IP (`logs/shodan_cache.json`, gravado em lote via `--cache-save-every`) e rate-limit (1 req/s, com retentativas limitadas) são decisões de design, não opcionais.
 - O hardcoded de API key foi corrigido; não reintroduza chaves no código.
 
 ## Verificação
 
-Não há framework de lint/test padronizado no projeto. Verifique mudanças executando o
-script/pipeline afetado com uma amostra pequena (ex: `--max-files 12`), como nos exemplos
-acima. Antes de executar pipelines, remova `output*.csv*` antigos do diretório de destino.
+Não há framework de lint/test padronizado no projeto. Verifique mudanças executando o script/pipeline afetado com uma amostra pequena (ex: `--max-files 12`), como nos exemplos acima. Antes de executar pipelines, remova `output*.csv*` antigos do diretório de destino.
+
+Os comandos de teste para a situação atual do pipeline estão documentados em
+`tests/exemplos_de_testes.md`. **Mantenha esse arquivo atualizado** sempre que o
+pipeline mudar (novas etapas, argumentos, formatos de CSV/cache, modos de uso) —
+corrija exemplos desatualizados em vez de ignorá-los.
+
+## Documentação
+
+Sempre que uma implementação alterar o comportamento do projeto:
+
+1. atualize a documentação correspondente;
+2. atualize `contexto/pipeline.md` se uma etapa do pipeline tiver sido alterada;
+3. registre os testes realizados e seus resultados em documentação dentro de `contexto/`, conforme `contexto/instrucoes.md`.
+
+Não considere uma implementação concluída enquanto os testes necessários e sua
+documentação não tiverem sido realizados.
+
+## Git
+
+- Não faça commits automaticamente, a menos que o usuário solicite explicitamente.
+- Não reverta alterações existentes sem verificar se elas pertencem ao trabalho atual.
+- Preserve alterações feitas anteriormente pelo usuário ou por outros agentes.
 
 ## Idioma
 

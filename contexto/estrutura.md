@@ -1,56 +1,81 @@
-Estrutura dos arquivos através do retorno de `tree -L 2`:
+Estrutura dos arquivos através do retorno de `tree -L 2 --noreport`:
 
 Diretório raiz: `ibr-etl`
 
 ```
 .
-├── backups
-│   ├── 2b_enrich_shodan.py
-│   └── shodan_cache.db
+├── AGENTS.md
+├── backups/                # inútil — ignorar completamente
+│   ├── 2b_enrich_shodan.py
+│   ├── academic_plan.py
+│   ├── academic_plan.sh
+│   ├── GeoLite2-City.mmdb
+│   └── shodan_cache.db
 ├── bashrc
-├── datasets
-│   ├── e1
-│   └── e3
-├── Docker
-│   ├── docker-compose.yml
-│   └── Dockerfile
-├── GeoLite2-City.mmdb
-├── logs
-│   ├── retorno.json
-│   └── shodan_enrich.log
-├── other
-│   ├── aggregate_pcaps.sh
-│   ├── capinfos_packet_count.sh
-│   ├── daily_distribution.py
-│   ├── full_etl.sh
-│   ├── generate_capinfos.sh
-│   ├── import_pcaps_onto_securityonion.sh
-│   ├── process_regions.sh
-│   └── testawsranges.py
+├── contexto/
+│   ├── claude_memory.md
+│   ├── Cloud_Telescope.md
+│   ├── estrutura.md
+│   ├── implementacoes_e_testes.md
+│   ├── instrucoes.md
+│   ├── pipeline.md
+│   └── TCC_2_ArthurPereira_PosBanca.md
+├── datasets/
+│   ├── e1/
+│   ├── e1_subset/
+│   └── e3/
+├── Docker/
+│   ├── docker-compose.yml
+│   └── Dockerfile
+├── GeoIP2-City.mmdb
+├── logs/
+│   ├── anomalous_entries.csv
+│   ├── cacheinfo.txt
+│   ├── retorno.json
+│   ├── shodan_enrich.log
+│   └── trimmed_entries.csv
+├── opencode.json
+├── other/
+│   ├── aggregate_pcaps.sh
+│   ├── capinfos_packet_count.sh
+│   ├── daily_distribution.py
+│   ├── full_etl.sh
+│   ├── generate_capinfos.sh
+│   ├── import_pcaps_onto_securityonion.sh
+│   ├── process_regions.sh
+│   └── testawsranges.py
 ├── README.md
-├── src
-│   ├── 1_generate_tshark_csv.sh
-│   ├── 2_enrich_csv.py
-│   ├── 3_summarize_radiation.py
-│   ├── 4_generate_graph.py
-│   ├── 5_import_mysql.py
-│   └── 6_shodan_enrich.py
-├── tests
-│   ├── poc_shodan.py
-│   └── testes_shodan.py
-└── venv
-    ├── bin
-    ├── include
-    ├── lib
-    ├── lib64 -> lib
+├── src/
+│   ├── 0_select_representative_subset.py
+│   ├── 1_generate_tshark_csv.sh
+│   ├── 2_enrich_csv.py
+│   ├── 3_summarize_radiation.py
+│   ├── 4_generate_graph.py
+│   ├── 5_import_mysql.py
+│   ├── 6_shodan_enrich.py
+│   └── __pycache__/
+├── tests/
+│   ├── exemplos_de_testes.md
+│   ├── poc_shodan.py
+│   └── testes_shodan.py
+└── venv/
+    ├── bin/
+    ├── include/
+    ├── lib/
+    ├── lib64 -> lib/
     └── pyvenv.cfg
-
-15 directories, 26 files
 ```
 
-Os diretórios `e1` e `e3` possuem os datasets (dados coletados pelo Cloud Telescope).
+Observações:
 
-Dentro do diretório `e1` existem os seguinte arquivos e diretórios:
+- `datasets/e1`, `datasets/e1_subset` e `datasets/e3`: os dados brutos e o subconjunto
+  de trabalho. Não listar, ler ou escanear seu conteúdo (ver `AGENTS.md`).
+- `GeoLite2-City.mmdb` (gratuita) pode coexistir com `GeoIP2-City.mmdb` (licenciada);
+  o pipeline usa a licenciada (`src/2_enrich_csv.py:7`).
+- `logs/shodan_cache.json` é criado na primeira execução da etapa 6 (cache Shodan).
+- `backups/` é obsoleto; mantido apenas por histórico.
+
+Dentro do diretório `e1` existem os seguintes arquivos e diretórios:
 `af-south-1b-13.244.71.194-20230502-0017.pcap.gz`
 `af-south-1b-13.244.71.194-20230501-1217.pcap.txt`
 `af-south-1b-13.244.71.194-20230501-1217.pcap.gz`

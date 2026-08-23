@@ -46,6 +46,14 @@ Antes de modificar código, leia os documentos em `contexto/` conforme a tarefa:
 Não há framework de lint/test. Valide mudanças com uma amostra pequena do pipeline
 (ex: `--max-files 12`) e removendo `output*.csv*` antigos do diretório de destino antes.
 
-## 7. Idioma
+## 7. Manutenção de `tests/exemplos_de_testes.md`
+
+`tests/exemplos_de_testes.md` documenta como testar a **situação atual** do pipeline
+e é um "living spec". Sempre que o pipeline mudar (novas etapas, novos argumentos,
+alterações de formato de CSV/cache, novos modos de uso), **atualize este arquivo**
+para refletir o estado novo. Corrija exemplos desatualizados em vez de ignorá-los.
+Crie ou ajuste os comandos de verificação junto com qualquer mudança de código.
+
+## 8. Idioma
 
 Responda ao usuário em português.

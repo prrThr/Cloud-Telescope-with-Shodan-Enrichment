@@ -10,7 +10,7 @@ Copie todos os arquivos PCAP para um único diretório.
 Requisitos:
 - Utilitários Unix padrão: `gzip` e `cat`.
 - `tshark` (instalação: `sudo apt install tshark`)
-- `GeoIP2-City.mmdb`, que pode ser obtido em: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+- `GeoLite2-City.mmdb` (ou `GeoIP2-City.mmdb` caso licenciada), que pode ser obtido em: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
 - Python **3.11** e os seguintes pacotes Python:
     - `geoip2`
     - `awsipranges`
@@ -30,6 +30,17 @@ Se você quiser testar o pipeline com 100 pacotes antes de processar um lote gra
 - `gzip sample.pcap`
 - Certifique-se de que não exista nenhum arquivo PCAP grande neste diretório de testes; caso contrário, ele também será processado.
 - Teste a amostra: `tshark -r sample.pcap`
+
+### Subconjunto representativo (etapa 0)
+Para evitar processar o dataset completo no desenvolvimento local, use o estágio de amostragem do pipeline. Ele seleciona arquivos por região e distribui os pontos no tempo de forma sistemática.
+
+A etapa 0 exige a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`), presente na raiz de `datasets/e1`. Os agregados do `datasets/e3` (`e3_<região>.pcap.gz`) não são elegíveis — detalhes em `contexto/e1_vs_e3.md`.
+
+- `python3 src/0_select_representative_subset.py datasets/e1 --output datasets/e1_subset --max-files 48 --clean`
+- `time src/1_generate_tshark_csv.sh datasets/e1_subset`
+- `time zcat datasets/e1_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e1_subset/output.enriched.csv.gz`
+
+Se quiser uma amostra ainda menor para depuração rápida, reduza `--max-files` para 12 ou 24.
 
 ### Exemplo rápido de comandos ETL (Extract-Transform-Load)
 
