@@ -265,6 +265,23 @@ Verificações:
 - `zcat <execução>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
 - `zcat <execução>/output.shodan.gz | head -1 | awk -F, '{print NF}'` → 28.
 
+### Aviso de fallback de destino
+
+Após a etapa 2, o script conta as linhas com destino no fallback (coluna M = `ZZ`)
+e, **se 100% delas** caírem no fallback, emite um `[full_etl] AVISO:` explicando a
+causa típica (destinos privados, ex.: `datasets/e1`) e sugerindo destinos públicos
+(ex.: `datasets/e3`). Execuções com ao menos um destino geolocalizado não emitem o
+aviso. Para testar os dois caminhos sem tocar nos datasets reais:
+
+```sh
+mkdir -p /tmp/opencode/ds_priv /tmp/opencode/ds_mix
+# ... gerar pcaps sintéticos mínimos:
+#     ds_priv/a1.pcap.gz → 1 pacote com dst privado (ex.: 172.31.39.30)
+#     ds_mix/b1.pcap.gz  → 1 pacote dst privado + 1 pacote dst público AWS
+other/full_etl.sh -d /tmp/opencode/ds_priv   # deve exibir o AVISO
+other/full_etl.sh -d /tmp/opencode/ds_mix    # NÃO deve exibir o AVISO
+```
+
 ### Opicionais
 
 - `--with-neo4j`: exige `enriched_unique_source_IPs.csv` +

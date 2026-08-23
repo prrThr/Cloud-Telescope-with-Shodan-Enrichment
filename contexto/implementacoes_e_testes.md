@@ -198,6 +198,10 @@ do pipeline atual (etapas 0–6) com opções de limitação e de consumidores o
   argumentos, `tshark` no PATH, dependências Python (`geoip2`, `awsipranges`,
   `shodan`, `dotenv`), presença de `SHODAN_API_KEY` em `.env` (verificação silenciosa,
   sem expor o valor) e pré-requisitos de Neo4j/MySQL quando solicitados.
+- Após a etapa 2, contagem em passada única (`awk` sobre o CSV enriquecido) das
+  linhas com destino no fallback (coluna M = `ZZ`): quando **100%** dos destinos
+  caem no fallback, emite `[full_etl] AVISO:` com a causa típica (destinos privados,
+  ex.: `datasets/e1`) e a sugestão de processar destinos públicos (ex.: `datasets/e3`).
 
 ### Comportamento esperado
 
@@ -220,6 +224,8 @@ do pipeline atual (etapas 0–6) com opções de limitação e de consumidores o
 | 8 | `--with-neo4j` com fixtures temporários de IPs únicos | `output_neo4j.cypher` com `create`/`merge` | OK — fixtures removidos após o teste |
 | 9 | Execução real: `-d datasets/e1 -n 4 -q 5` | exit 0; artefatos + manifestos da etapa 0 | OK — etapa 0 selecionou 26 capturas (≥1 por região); Shodan: 5 linhas, 5 cache hits, 0 API calls |
 | 10 | Execução a partir de outro CWD (`/tmp/opencode`) | artefatos no `datasets/` do projeto | OK |
+| 11 | Aviso de fallback: pcaps sintéticos só com dst privado (`ds_priv`) | `[full_etl] AVISO:` de 100% em fallback | OK — "100% dos destinos ficaram no fallback GeoIP/AWS (1 linhas...)" |
+| 12 | Aviso de fallback: pcaps sintéticos mistos, dst privado + público (`ds_mix`) | nenhum AVISO emitido | OK — 0 ocorrências |
 
 Os diretórios de execução criados nos testes foram removidos ao final.
 
@@ -229,6 +235,11 @@ Os diretórios de execução criados nos testes foram removidos ao final.
   (26 no `datasets/e1`): comportamento de `allocate_quotas` na etapa 0
   (`min_per_region=1`), documentado na ajuda do script. Não alterado por ser
   decisão de estratificação metodológica.
+- No `datasets/e1`, **todas** as linhas têm destino privado (`172.31.x.x`), de modo
+  que as colunas M–R (país/cidade/lat/long/região AWS de destino) sempre caem no
+  fallback `ZZ`/`-9999`/`Unknown` — comportamento projetado da etapa 2, agora
+  sinalizado pelo aviso do facilitador. Análises por origem (colunas H–L) seguem
+  válidas; para geo/região de destino significativos, usar `datasets/e3`.
 - A etapa 4 lê 17 colunas do CSV enriquecido (índices deslocados em relação às 18
   colunas atuais) e depende dos `enriched_unique_*_IPs.csv`, hoje não gerados
   (bloco comentado em `src/2_enrich_csv.py`). Limitação pré-existente, fora do

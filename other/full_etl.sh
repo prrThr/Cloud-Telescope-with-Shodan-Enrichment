@@ -152,6 +152,12 @@ ENRICHED="$RUN_DIR/output.enriched.csv.gz"
 log "Etapa 2 — enriquecimento GeoIP + AWS"
 zcat "$RUN_DIR/output.csv.gz" | "$PY" src/2_enrich_csv.py | gzip > "$ENRICHED"
 
+read -r LINHAS FALLBACK < <(zcat "$ENRICHED" | awk -F, '{n++; if ($13 == "ZZ") f++} END {print n+0, f+0}')
+if (( LINHAS > 0 && FALLBACK == LINHAS )); then
+    log "AVISO: 100% dos destinos ficaram no fallback GeoIP/AWS (${LINHAS} linhas com ZZ/Unknown na coluna M-R)."
+    log "AVISO: causa típica — destinos privados nas capturas (ex.: datasets/e1); para geo/região de destino significativos, processe destinos públicos (ex.: datasets/e3). Ver contexto/implementacoes_e_testes.md, seção C."
+fi
+
 log "Etapa 3 — resumo LaTeX"
 zcat "$ENRICHED" | "$PY" src/3_summarize_radiation.py > "$RUN_DIR/output.tex"
 
