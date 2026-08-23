@@ -23,6 +23,7 @@ Modos de uso:
 
   [PIPELINE] Integração ao ETL existente:
     zcat output.csv.enriched.gz | python3 6_shodan_enrich.py | gzip > output.csv.shodan.gz
+    (--cache-save-every N controla a frequência de gravação do cache em disco)
 
   [DEMO] Visualização detalhada da resposta da API para um IP:
     python3 6_shodan_enrich.py --demo 1.2.3.4
@@ -52,10 +53,12 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import json
+import re
 import time
+import atexit
 import logging
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -88,6 +91,9 @@ MAX_RETRIES     = 3                         # RNF04 - tentativas em falhas de re
 RETRY_BACKOFF   = 10                        # segundos de espera na primeira retentativa
 LOG_FILE        = os.path.join(PROJECT_ROOT, "logs", "shodan_enrich.log")
 PROGRESS_EVERY  = 1000                      # linhas entre cada log de progresso
+RATE_LIMIT_WAIT = 60                        # espera fixa ao retentar em rate limit (RNF03)
+DEFAULT_SAVE_EVERY = 500                    # grava o cache em disco a cada N IPs novos (RF06)
+IPV4_RE         = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 
 # Nomes dos campos adicionados ao CSV (usados no modo demo e no cabeçalho)
 SHODAN_FIELD_NAMES = [
@@ -143,11 +149,13 @@ class ShodanCache:
     }
     """
 
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, save_every: int = DEFAULT_SAVE_EVERY):
         self.filepath = filepath
+        self.save_every = max(1, save_every)
         self.data: dict = {}
         self._hits = 0
         self._misses = 0
+        self._pending = 0
         self._load()
 
     def _load(self):
@@ -171,15 +179,28 @@ class ShodanCache:
         return record
 
     def set(self, ip: str, record: dict):
-        self.data[ip] = record
-        self._save()
+        self.data[ip] = self._slim(record)
+        self._pending += 1
+        if self._pending >= self.save_every:
+            self._save()
+
+    def flush(self):
+        """Força a gravação das pendências do cache em disco."""
+        if self._pending > 0:
+            self._save()
 
     def _save(self):
         try:
             with open(self.filepath, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False)
+            self._pending = 0
         except OSError as e:
             logger.error(f"Falha ao salvar cache: {e}")
+
+    @staticmethod
+    def _slim(record: dict) -> dict:
+        """Remove campos auxiliares pesados (banners/certs completos) do cache."""
+        return {k: v for k, v in record.items() if k != "_raw_services"}
 
     @property
     def stats(self) -> dict:
@@ -221,6 +242,55 @@ def init_api(api_key: str) -> shodan.Shodan:
 # Consulta e normalização (RF04, RF05 / CSU02)
 # ---------------------------------------------------------------------------
 
+def _normalize_host(host: dict, ip: str) -> dict:
+    """
+    Converte a resposta bruta de api.host() em registro normalizado (RF04, RF05).
+    Reutilizado pelo modo pipeline (via query_shodan) e pelo modo demo.
+    """
+    # Consolida CPEs de todos os serviços detectados (RF05)
+    cpes: set[str] = set()
+    for service in host.get("data", []):
+        for cpe in service.get("cpe", []):
+            cpes.add(cpe)
+
+    # CVEs: a API retorna dict {CVE_ID: metadata} em planos completos,
+    # ou lista [CVE_ID, ...] em planos com acesso parcial (RF05).
+    vulns_raw = host.get("vulns", {})
+    if isinstance(vulns_raw, dict):
+        cves = sorted(vulns_raw.keys())
+    elif isinstance(vulns_raw, list):
+        cves = sorted(vulns_raw)
+    else:
+        cves = []
+
+    record = {
+        "found":       True,
+        "org":         _clean(host.get("org",  "")),
+        "isp":         _clean(host.get("isp",  "")),
+        "asn":         _clean(host.get("asn",  "")),
+        "os":          _clean(host.get("os") or ""),
+        "open_ports":  sorted(host.get("ports", [])),
+        "cpes":        sorted(cpes),
+        "cves":        cves,
+        "tags":        host.get("tags", []),
+        "hostnames":   host.get("hostnames", []),
+        "last_seen":   host.get("last_update", ""),
+        # Campos auxiliares (não exportados para CSV, usados em logs/demo)
+        "_services_count": len(host.get("data", [])),
+        "_raw_services":   host.get("data", []),
+        "_queried_at":     datetime.now(timezone.utc).isoformat(),
+    }
+
+    logger.info(
+        f"[FOUND] {ip} | org='{record['org']}' | "
+        f"portas={len(record['open_ports'])} | "
+        f"serviços={record['_services_count']} | "
+        f"CPEs={len(record['cpes'])} | "
+        f"CVEs={len(record['cves'])}"
+    )
+    return record
+
+
 def query_shodan(api: shodan.Shodan, ip: str, retries: int = MAX_RETRIES) -> dict:
     """
     Consulta api.host(ip) e normaliza o resultado (RF04, RF05).
@@ -237,54 +307,12 @@ def query_shodan(api: shodan.Shodan, ip: str, retries: int = MAX_RETRIES) -> dic
 
     Tratamento de erros (RNF04 / CSU02 - Fluxos de exceção):
       - IP sem registros    → retorna registro vazio, sem exception
-      - Rate limit          → pausa 60s e retenta (RNF03)
+      - Rate limit          → pausa RATE_LIMIT_WAIT e retenta (limitado a MAX_RETRIES)
       - Falha de rede       → backoff exponencial até MAX_RETRIES tentativas
     """
     try:
         host = api.host(ip)
-
-        # Consolida CPEs de todos os serviços detectados (RF05)
-        cpes: set[str] = set()
-        for service in host.get("data", []):
-            for cpe in service.get("cpe", []):
-                cpes.add(cpe)
-
-        # CVEs: a API retorna dict {CVE_ID: metadata} em planos completos,
-        # ou lista [CVE_ID, ...] em planos com acesso parcial (RF05).
-        vulns_raw = host.get("vulns", {})
-        if isinstance(vulns_raw, dict):
-            cves = sorted(vulns_raw.keys())
-        elif isinstance(vulns_raw, list):
-            cves = sorted(vulns_raw)
-        else:
-            cves = []
-
-        record = {
-            "found":       True,
-            "org":         _clean(host.get("org",  "")),
-            "isp":         _clean(host.get("isp",  "")),
-            "asn":         _clean(host.get("asn",  "")),
-            "os":          _clean(host.get("os") or ""),
-            "open_ports":  sorted(host.get("ports", [])),
-            "cpes":        sorted(cpes),
-            "cves":        cves,
-            "tags":        host.get("tags", []),
-            "hostnames":   host.get("hostnames", []),
-            "last_seen":   host.get("last_update", ""),
-            # Campos auxiliares (não exportados para CSV, usados em logs/demo)
-            "_services_count": len(host.get("data", [])),
-            "_raw_services":   host.get("data", []),
-            "_queried_at":     datetime.utcnow().isoformat(),
-        }
-
-        logger.info(
-            f"[FOUND] {ip} | org='{record['org']}' | "
-            f"portas={len(record['open_ports'])} | "
-            f"serviços={record['_services_count']} | "
-            f"CPEs={len(record['cpes'])} | "
-            f"CVEs={len(record['cves'])}"
-        )
-        return record
+        return _normalize_host(host, ip)
 
     except shodan.APIError as e:
         error_msg = str(e)
@@ -296,9 +324,16 @@ def query_shodan(api: shodan.Shodan, ip: str, retries: int = MAX_RETRIES) -> dic
 
         # CSU02 - Exceção 1: Rate limit (RNF03)
         if "rate limit" in error_msg.lower():
-            logger.warning(f"[RATE LIMIT] Pausa de 60s antes de retentar {ip}...")
-            time.sleep(60)
-            return query_shodan(api, ip, retries)
+            if retries > 0:
+                logger.warning(
+                    f"[RATE LIMIT] {ip} — {error_msg}. "
+                    f"Pausa de {RATE_LIMIT_WAIT}s antes de retentar "
+                    f"({retries} tentativas restantes)..."
+                )
+                time.sleep(RATE_LIMIT_WAIT)
+                return query_shodan(api, ip, retries - 1)
+            logger.error(f"[FAIL] {ip} — rate limit persistente: {error_msg}")
+            return _empty_record(ip, reason=error_msg[:100])
 
         # CSU02 - Exceção 2: Falha de rede / timeout (RNF04)
         if retries > 0:
@@ -323,7 +358,7 @@ def _empty_record(ip: str, reason: str = "") -> dict:
         "tags":        [], "hostnames": [], "last_seen": "",
         "_services_count": 0,
         "_raw_services":   [],
-        "_queried_at": datetime.utcnow().isoformat(),
+        "_queried_at": datetime.now(timezone.utc).isoformat(),
         "_miss_reason": reason,
     }
 
@@ -331,6 +366,13 @@ def _empty_record(ip: str, reason: str = "") -> dict:
 def _clean(value: str) -> str:
     """Remove vírgulas e quebras de linha que quebrariam o CSV."""
     return str(value).replace(",", " ").replace("\n", " ").replace("\r", "").strip()
+
+
+def _is_ipv4(value: str) -> bool:
+    """Valida se a string é um IPv4 no formato dotted quad."""
+    if not IPV4_RE.match(value):
+        return False
+    return all(0 <= int(octet) <= 255 for octet in value.split("."))
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +524,7 @@ def demo_mode(api: shodan.Shodan, ip: str, dump_json: bool = False):
     # 5. Campos que serão adicionados ao CSV do pipeline (RF07)
     # ----------------------------------------------------------------
     print("\n── 5. Campos Adicionados ao CSV do Pipeline ────────────────")
-    record     = query_shodan(api, ip)
+    record     = _normalize_host(host, ip)
     csv_fields = record_to_csv_fields(record)
     print(f"  {'Campo CSV':<25} {'Índice':>6}  Valor")
     print(f"  {'-'*25} {'-'*6}  {'-'*40}")
@@ -571,6 +613,13 @@ def process_pipeline(api: shodan.Shodan, cache: ShodanCache, rate_limit: float):
 
         stats["lines_total"] += 1
         ipsrc = fields[1]  # RF01 — endereço IPv4 de origem
+        if not _is_ipv4(ipsrc):
+            logger.warning(
+                f"Linha ignorada — IPv4 de origem inválido ({ipsrc!r}): "
+                f"{line[:80]!r}"
+            )
+            stats["lines_skipped"] += 1
+            continue
 
         # RF02 — verifica cache antes de consultar a API
         record = cache.get(ipsrc)
@@ -598,6 +647,9 @@ def process_pipeline(api: shodan.Shodan, cache: ShodanCache, rate_limit: float):
                 f"API calls: {stats['api_calls']} | "
                 f"sem dados: {stats['no_data']}"
             )
+
+    # Persiste as pendências restantes do cache (RF06)
+    cache.flush()
 
     # Relatório final
     cs = cache.stats
@@ -660,6 +712,13 @@ def main():
         metavar="SEGUNDOS",
         help=f"Delay entre requisições à API (padrão: {RATE_LIMIT_SEC}s)",
     )
+    parser.add_argument(
+        "--cache-save-every",
+        type=int,
+        default=DEFAULT_SAVE_EVERY,
+        metavar="N",
+        help=f"Grava o cache em disco a cada N IPs novos (padrão: {DEFAULT_SAVE_EVERY})",
+    )
 
     args = parser.parse_args()
 
@@ -680,7 +739,8 @@ def main():
 
     else:
         # Modo pipeline padrão
-        cache = ShodanCache(args.cache_file)
+        cache = ShodanCache(args.cache_file, save_every=args.cache_save_every)
+        atexit.register(cache.flush)
         process_pipeline(api, cache, rate_limit=args.rate_limit)
 
 

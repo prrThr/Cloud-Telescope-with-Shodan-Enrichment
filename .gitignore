@@ -1,7 +1,5 @@
 # Cloud-Telescope
-e1
-e2
-e3
+datasets/*
 GeoIP2-City.mmdb
 GeoLite2-City.mmdb
 *.csv

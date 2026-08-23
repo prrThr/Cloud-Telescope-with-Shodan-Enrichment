@@ -105,11 +105,13 @@ for rawline in sys.stdin:
                     cachedst[ipdst]['city_name'] = 'Unknown'#14
                 cachedst[ipdst]['latitude'] = str(geoip_destination.location.latitude)#15
                 cachedst[ipdst]['longitude'] = str(geoip_destination.location.longitude)#16
-                try:
-                    aws_response = aws_ip_ranges.get(ipdst)
-                    cachedst[ipdst]['region'] = str(aws_response.region)
-                except:
-                    cachedst[ipdst]['region'] = "Unknown" #17
+
+            # região AWS independente do GeoIP (sempre tenta, fallback para Unknown)
+            try:
+                aws_response = aws_ip_ranges.get(ipdst)
+                cachedst[ipdst]['region'] = str(aws_response.region)
+            except:
+                cachedst[ipdst]['region'] = "Unknown" #17
 
         else:
             cachedsthit+=1
