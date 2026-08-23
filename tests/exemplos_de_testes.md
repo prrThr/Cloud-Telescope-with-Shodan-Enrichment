@@ -209,7 +209,7 @@ Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas
 
 ```sh
 rm -rf datasets/e1_subset
-python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e1_subset --max-files 12 --clean
+python3 src/0_select_representative_subset.py datasets/e1 --output datasets/e1_subset --max-files 12 --clean
 src/1_generate_tshark_csv.sh datasets/e1_subset
 zcat datasets/e1_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e1_subset/output.enriched.csv.gz
 zcat datasets/e1_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e1_subset/output.tex

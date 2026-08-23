@@ -22,8 +22,28 @@ Antes de realizar qualquer modificação significativa:
 
 As instruções de `contexto/instrucoes.md` complementam este arquivo.
 
-Em caso de conflito, preserve as regras de segurança, integridade dos dados e
-credenciais definidas neste `AGENTS.md`.
+## Hierarquia da documentação (fonte única de verdade)
+
+Cada informação tem **um único lugar canônico**. Não duplique regras entre arquivos;
+atualize o documento responsável. Ordem de precedência em caso de conflito:
+
+1. **Segurança e integridade** — nunca tocar em `datasets/` (leitura/exploração),
+   nunca expor segredos. Inviolável, prevalece sobre qualquer outro documento.
+2. **`AGENTS.md`** (este arquivo) — regras operacionais canônicas.
+3. **`contexto/instrucoes.md`** — processo detalhado de trabalho (complementa o
+   `AGENTS.md`; não pode contradizê-lo).
+4. **Documentos vivos** — devem refletir a realidade atual do projeto e ser
+   atualizados junto com o código: `contexto/pipeline.md`, `contexto/estrutura.md`,
+   `contexto/e1_vs_e3.md`, `tests/exemplos_de_testes.md`.
+5. **Referência conceitual** — `contexto/Cloud_Telescope.md`,
+   `contexto/TCC_2_ArthurPereira_PosBanca.md` (definem escopo/metodologia; não
+   descrevem a implementação corrente).
+6. **Registros históricos auxiliares** — `contexto/implementacoes_e_testes.md`,
+   `contexto/claude_memory.md`. Úteis como contexto, mas **não-canônicos**: em
+   conflito com código, testes ou documentos vivos, investigue antes de decidir.
+
+O arquivo `.opencode/rules.md` é apenas um redirecionamento para este documento;
+não contém regras próprias.
 
 ## Datasets
 
@@ -35,13 +55,16 @@ Os datasets estão disponíveis em:
 Os datasets possuem grande volume de dados e não devem ser lidos ou processados
 integralmente apenas para compreender sua estrutura.
 
-A inspeção inicial dos datasets deve seguir estritamente as regras de
-`contexto/instrucoes.md`.
-
 ### Regra geral
 
-- Não leia todos os arquivos dos datasets.
-- Não percorra desnecessariamente grandes volumes de dados.
+- **Não liste, leia, abra ou escaneie arquivos de `datasets/`** (inclui `ls`, `find`,
+  `glob`, `du`, `rg`, `cat`, `zcat`, `read`). São ~37 GiB de dados opacos; o opencode
+  já respeita o `.gitignore`, cuidado apenas com comandos `bash` crus.
+- Para compreender a estrutura dos dados, use a documentação (`AGENTS.md`,
+  `contexto/e1_vs_e3.md`, `contexto/estrutura.md`) e as regex
+  `FILENAME_RE`/`REGION_AZ_RE` em `src/0_select_representative_subset.py`.
+  Exceção: executar as etapas do pipeline sobre `datasets/e1_subset` (amostra
+  pequena), validando apenas códigos de saída e contagens, sem ler o conteúdo gerado.
 - Não processe os datasets completos durante testes de desenvolvimento.
 - Prefira amostras pequenas e representativas.
 - Não leia ou escaneie `datasets/e1/aggregated` ou `datasets/e3/final_results`
@@ -80,15 +103,18 @@ Consulte `src/0_select_representative_subset.py`, especialmente `FILENAME_RE` e
 
 ## Contexto do projeto (leia antes de qualquer modificação)
 
-Os documentos canônicos ficam em `contexto/` (são o "living spec" do TCC):
+Os documentos ficam em `contexto/`; seus papéis estão definidos na hierarquia acima:
 
+- `contexto/instrucoes.md` — processo detalhado de trabalho para agentes de IA.
 - `contexto/Cloud_Telescope.md` — TCC do prof. Bortoluzzi (base do projeto).
 - `contexto/TCC_2_ArthurPereira_PosBanca.md` — TCC do Arthur (especificação a seguir).
-- `contexto/claude_memory.md` — memória/lições de sessões anteriores.
-- `contexto/estrutura.md` — árvore de arquivos do projeto.
-- `contexto/instrucoes.md` — instruções de contexto para agentes de IA.
+- `contexto/pipeline.md` — etapas atuais do pipeline (vivo; atualizar junto com o código).
+- `contexto/estrutura.md` — árvore de arquivos do projeto (viva; atualizar ao mover/criar/remover).
+- `contexto/e1_vs_e3.md` — diferenças entre datasets e como usá-los nos testes (vivo).
+- `contexto/implementacoes_e_testes.md` — registro histórico de implementações/testes.
+- `contexto/claude_memory.md` — lições de sessões anteriores (auxiliar, não-canônico).
 
-Os dois primeiros são grandes; leia-os seletivamente (grep/parágrafos) conforme a tarefa,
+Os dois TCCs são grandes; leia-os seletivamente (grep/parágrafos) conforme a tarefa,
 não do início ao fim.
 
 ## Estrutura do repositório
@@ -101,7 +127,9 @@ não do início ao fim.
 - `Docker/` — `Dockerfile` + `docker-compose.yml`.
 - `tests/` — testes e provas de conceito.
 - `venv/` — ambiente virtual local (ignore).
-- `GeoLite2-City.mmdb` / `GeoIP2-City.mmdb` — base MaxMind GeoIP (licenciada vs. gratuita).
+- `GeoIP2-City.mmdb` — base MaxMind GeoIP licenciada, usada pelo pipeline
+  (`src/2_enrich_csv.py`). A gratuita (`GeoLite2-City.mmdb`) existe apenas em
+  `backups/` (obsoleta).
 
 Todos os scripts do pipeline devem resolver caminhos relativos ao `PROJECT_ROOT` e não depender do diretório de trabalho atual.
 
@@ -180,9 +208,53 @@ documentação não tiverem sido realizados.
 
 ## Git
 
-- Não faça commits automaticamente, a menos que o usuário solicite explicitamente.
-- Não reverta alterações existentes sem verificar se elas pertencem ao trabalho atual.
-- Preserve alterações feitas anteriormente pelo usuário ou por outros agentes.
+### Política de Branches e Commits
+
+Toda implementação, alteração ou correção realizada pela IA deverá ser desenvolvida em uma branch exclusiva, seguindo o padrão **Conventional Branch**.
+
+A IA nunca deverá realizar alterações diretamente na branch `main`, nem executar `push` para qualquer branch remota. Todo o desenvolvimento deverá ocorrer em branches separadas da `main`, garantindo isolamento das mudanças e permitindo revisão humana antes da integração.
+
+### Regras de Branches
+
+- Cada nova implementação deve iniciar com a criação de uma nova branch.
+- O nome da branch deve seguir o padrão **Conventional Branch**.
+- A branch deve representar claramente o objetivo da alteração, utilizando convenções como:
+  - `feat/<descricao-da-feature>`
+  - `fix/<descricao-do-bug>`
+  - `chore/<descricao-da-manutencao>`
+  - `refactor/<descricao-da-refatoracao>`
+
+### Regras de Commits
+
+Todos os commits realizados pela IA devem seguir o padrão **Conventional Commits**.
+
+Os commits devem:
+- Possuir uma categoria válida (feat, fix, docs, refactor, test, chore, entre outras).
+- Ter uma descrição objetiva da alteração realizada.
+- Manter histórico de mudanças claro e rastreável.
+
+Exemplos:
+
+```
+feat(auth): adiciona suporte a login social
+
+fix(api): corrige validação de token expirado
+
+refactor(database): simplifica camada de acesso aos dados
+```
+
+### Fluxo de Finalização
+
+Ao concluir uma implementação, a IA deverá:
+
+1. Garantir que todas as alterações estejam na branch criada para a tarefa.
+2. Verificar se os commits seguem o padrão **Conventional Commits**.
+3. Solicitar a criação de um **Pull Request** da branch de implementação para a main.
+4. Aguardar a revisão e aprovação humana antes de qualquer integração.
+
+A aprovação ou rejeição do **Pull Request** é responsabilidade exclusiva do humano responsável pelo repositório.
+
+A IA não realiza merge, não aprova Pull Requests e não interfere na branch `main` em nenhuma circunstância.
 
 ## Idioma
 

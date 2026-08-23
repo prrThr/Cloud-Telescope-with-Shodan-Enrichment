@@ -1,25 +1,32 @@
-Estrutura dos arquivos através do retorno de `tree -L 2 --noreport`:
+Estrutura dos arquivos através do retorno de `tree -L 2 --noreport`
+(excluindo `datasets/`, `venv/` e artefatos de ferramentas — não escanear `datasets/`):
 
 Diretório raiz: `ibr-etl`
 
 ```
 .
-├── AGENTS.md
-├── backups/                # inútil — ignorar completamente
+├── AGENTS.md                  # fonte única de verdade das regras operacionais
+├── .env                       # segredos (SHODAN_API_KEY) — nunca commitar/expor
+├── .env_example               # modelo do .env, sem valores reais
+├── .gitignore
+├── .opencode/
+│   └── rules.md               # apenas redireciona para o AGENTS.md
+├── backups/                   # inútil — ignorar completamente
 │   ├── 2b_enrich_shodan.py
 │   ├── academic_plan.py
 │   ├── academic_plan.sh
-│   ├── GeoLite2-City.mmdb
+│   ├── GeoLite2-City.mmdb     # GeoIP gratuita (obsoleta; vive só aqui)
 │   └── shodan_cache.db
 ├── bashrc
 ├── contexto/
-│   ├── claude_memory.md
-│   ├── Cloud_Telescope.md
-│   ├── estrutura.md
-│   ├── implementacoes_e_testes.md
-│   ├── instrucoes.md
-│   ├── pipeline.md
-│   └── TCC_2_ArthurPereira_PosBanca.md
+│   ├── claude_memory.md       # lições de sessões anteriores (auxiliar)
+│   ├── Cloud_Telescope.md     # TCC do prof. Bortoluzzi (referência conceitual)
+│   ├── e1_vs_e3.md            # diferenças entre datasets e uso nos testes (vivo)
+│   ├── estrutura.md           # este arquivo (vivo)
+│   ├── implementacoes_e_testes.md  # registro histórico de implementações/testes
+│   ├── instrucoes.md          # processo detalhado de trabalho para agentes de IA
+│   ├── pipeline.md            # etapas atuais do pipeline (vivo)
+│   └── TCC_2_ArthurPereira_PosBanca.md  # TCC do Arthur (referência conceitual)
 ├── datasets/
 │   ├── e1/
 │   ├── e1_subset/
@@ -27,14 +34,16 @@ Diretório raiz: `ibr-etl`
 ├── Docker/
 │   ├── docker-compose.yml
 │   └── Dockerfile
-├── GeoIP2-City.mmdb
+├── GeoIP2-City.mmdb           # base MaxMind GeoIP licenciada (usada pelo pipeline)
 ├── logs/
 │   ├── anomalous_entries.csv
 │   ├── cacheinfo.txt
 │   ├── retorno.json
+│   ├── shodan_cache.json      # cache Shodan por IP (criado na 1ª execução da etapa 6)
 │   ├── shodan_enrich.log
+│   ├── summarize_radiation_dict_dump.txt
 │   └── trimmed_entries.csv
-├── opencode.json
+├── opencode.json              # carrega .opencode/rules.md como instruções
 ├── other/
 │   ├── aggregate_pcaps.sh
 │   ├── capinfos_packet_count.sh
@@ -52,36 +61,30 @@ Diretório raiz: `ibr-etl`
 │   ├── 3_summarize_radiation.py
 │   ├── 4_generate_graph.py
 │   ├── 5_import_mysql.py
-│   ├── 6_shodan_enrich.py
-│   └── __pycache__/
+│   └── 6_shodan_enrich.py
 ├── tests/
-│   ├── exemplos_de_testes.md
+│   ├── exemplos_de_testes.md  # living spec dos comandos de teste (vivo)
 │   ├── poc_shodan.py
 │   └── testes_shodan.py
 └── venv/
-    ├── bin/
-    ├── include/
-    ├── lib/
-    ├── lib64 -> lib/
-    └── pyvenv.cfg
 ```
 
 Observações:
 
-- `datasets/e1`, `datasets/e1_subset` e `datasets/e3`: os dados brutos e o subconjunto
-  de trabalho. Não listar, ler ou escanear seu conteúdo (ver `AGENTS.md`).
-- `GeoLite2-City.mmdb` (gratuita) pode coexistir com `GeoIP2-City.mmdb` (licenciada);
-  o pipeline usa a licenciada (`src/2_enrich_csv.py:7`).
+- `datasets/e1`, `datasets/e1_subset` e `datasets/e3`: dados brutos e subconjunto de
+  trabalho (~37 GiB). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
+- `GeoLite2-City.mmdb` (gratuita) existe apenas em `backups/`; o pipeline usa a
+  licenciada `GeoIP2-City.mmdb` (`src/2_enrich_csv.py:7`).
 - `logs/shodan_cache.json` é criado na primeira execução da etapa 6 (cache Shodan).
 - `backups/` é obsoleto; mantido apenas por histórico.
+- Hierarquia e papéis da documentação: seção "Hierarquia da documentação" no
+  `AGENTS.md`.
 
-Dentro do diretório `e1` existem os seguintes arquivos e diretórios:
+Dentro do diretório `e1` existem arquivos como (nomenclatura bruta):
+
 `af-south-1b-13.244.71.194-20230502-0017.pcap.gz`
 `af-south-1b-13.244.71.194-20230501-1217.pcap.txt`
 `af-south-1b-13.244.71.194-20230501-1217.pcap.gz`
-`af-south-1b-13.244.71.194-20230501-0017.pcap.txt`
 ...
-`us-west-2a-54.245.220.116-20230501-0008.pcap.txt`
-`us-west-2a-54.245.220.116-20230501-0008.pcap.gz`
-`us-west-2a-54.214.221.78-20230430-0137.pcap.gz`
-`us-west-2a-52.24.122.124-20230506-1218.pcap.txt`
+
+Padrão completo em `AGENTS.md` (Nomenclatura das capturas) e `contexto/e1_vs_e3.md`.

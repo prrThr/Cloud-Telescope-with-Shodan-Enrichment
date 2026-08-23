@@ -1,9 +1,12 @@
 # Instruções de contexto para agentes de IA
 
-Este arquivo contém as instruções específicas para compreender e desenvolver o
-projeto ibr-etl / Cloud Telescope.
+Este arquivo contém o **processo detalhado de trabalho** para compreender e
+desenvolver o projeto ibr-etl / Cloud Telescope.
 
-Estas instruções complementam o `AGENTS.md`, localizado na raiz do projeto.
+Estas instruções complementam o `AGENTS.md`, localizado na raiz do projeto. Em caso
+de conflito, valem primeiro as regras de segurança/integridade (nunca explorar
+`datasets/`, nunca expor segredos) e depois o `AGENTS.md`; este arquivo não pode
+contradizê-los.
 
 ## 1. Objetivo do projeto
 
@@ -111,6 +114,26 @@ Quando uma implementação modificar:
 
 atualize `pipeline.md`.
 
+### `e1_vs_e3.md`
+
+Registra as diferenças entre `datasets/e1` e `datasets/e3` (organização, período,
+nível de consolidação) e como cada um deve ser usado nos testes. Consulte-o sempre
+que a tarefa envolver execução do pipeline sobre dados reais ou amostragem
+(etapa 0).
+
+### `implementacoes_e_testes.md`
+
+Registro histórico de implementações e testes já realizados, com distinção explícita
+entre resultado esperado e resultado obtido.
+
+Use-o para:
+
+- compreender decisões anteriores e seus motivos;
+- evitar resolver novamente problemas já tratados.
+
+Não é canônico: em conflito com código, testes ou documentos vivos, investigue antes
+de decidir. Novas implementações devem registrar seus testes conforme a seção 7.
+
 ---
 
 ## 3. Inspeção dos datasets
@@ -122,40 +145,26 @@ datasets/e1/
 datasets/e3/
 ```
 
-Eles contêm grande quantidade de dados e não devem ser lidos integralmente.
+Eles possuem grande volume de dados (~37 GiB) e **não devem ser listados, lidos,
+abertos ou escaneados** — nem integralmente, nem por amostra. Essa é uma regra de
+segurança/integridade definida no `AGENTS.md` e prevalece sobre qualquer outra
+instrução deste arquivo.
 
-### Inspeção inicial obrigatória
+Para compreender a estrutura dos dados, use apenas:
 
-Para compreender a estrutura dos arquivos capturados pelo telescópio, faça uma inspeção limitada:
+- documentação: nomenclatura no `AGENTS.md`, diferenças entre datasets em
+  `contexto/e1_vs_e3.md`, árvore em `contexto/estrutura.md`;
+- código existente: regex `FILENAME_RE`/`REGION_AZ_RE` em
+  `src/0_select_representative_subset.py`;
+- execuções controladas do pipeline sobre `datasets/e1_subset` (amostra pequena),
+  validando somente códigos de saída e contagens, sem ler o conteúdo gerado.
 
-- leia no máximo **10 arquivos** de `e1/`;
-- leia no máximo **10 arquivos** de `e3/`.
+Restrições adicionais:
 
-O objetivo é apenas compreender a estrutura real dos dados.
-A inspeção deve observar, quando relevante:
-
-- formato;
-- campos;
-- cabeçalhos;
-- separadores;
-- codificação;
-- estrutura das linhas;
-- padrões de timestamps;
-- endereços IP;
-- portas;
-- protocolos;
-- informações de rede;
-- características específicas de cada dataset.
-
-### Restrições
-
-Não:
-
-- leia todos os arquivos;
-- processe o dataset inteiro;
-- carregue grandes arquivos integralmente na memória;
-- faça varreduras desnecessárias;
-- use os datasets completos para testes rotineiros.
+- Não leia ou escaneie `datasets/e1/aggregated/` ou `datasets/e3/final_results/`
+  sem necessidade explícita.
+- Não use os datasets completos em testes rotineiros de desenvolvimento.
+- Prefira amostras pequenas e representativas (`--max-files` pequeno).
 
 Depois de compreender a estrutura, utilize preferencialmente:
 
@@ -261,7 +270,7 @@ O teste deve verificar efetivamente o comportamento implementado.
 
 ## 7. Documentação obrigatória após implementação
 
-Sempre que uma implementação for realizada, crie ou atualize um arquivo `.md` dentro de `contexto/` documentando a implementação e seus testes.
+Sempre que uma implementação for realizada, crie ou atualize um arquivo `.md` dentro de `contexto/` documentando a implementação e seus testes — por padrão, registre-a em `contexto/implementacoes_e_testes.md`.
 
 A documentação deve conter, quando aplicável:
 
@@ -284,9 +293,11 @@ pretendido.
 
 Não deixe a documentação do pipeline divergente da implementação.
 
---- 
+---
 
-## 9. Atualização do estrutura.md
+## 9. Atualização dos documentos vivos
+
+### `estrutura.md`
 
 Se arquivos ou diretórios forem:
 
@@ -297,6 +308,12 @@ Se arquivos ou diretórios forem:
 
 atualize o `contexto/estrutura.md`.
 A estrutura documentada deve representar a estrutura real do projeto.
+
+### `tests/exemplos_de_testes.md`
+
+`tests/exemplos_de_testes.md` documenta como testar a **situação atual** do pipeline.
+Sempre que o pipeline mudar (novas etapas, argumentos, formatos de CSV/cache, modos de
+uso), atualize-o; corrija exemplos desatualizados em vez de ignorá-los.
 
 ---
 
