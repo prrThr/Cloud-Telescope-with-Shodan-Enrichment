@@ -218,3 +218,64 @@ zcat datasets/e1_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_en
 
 > Não há framework de lint/test padronizado no projeto. `py_compile` + execução com
 > amostra pequena + conferência do número de colunas são as validações de referência.
+
+---
+
+## 5. Facilitador `other/full_etl.sh`
+
+Executa o pipeline por inteiro (etapas 1→2→3→6; etapa 0 quando `-n`; etapas 4 e 5
+opcionais) criando um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`
+por execução. O dataset de origem só é lido (links simbólicos); execuções anteriores
+nunca são removidas ou alteradas. Pré-requisitos (tshark, dependências Python,
+`SHODAN_API_KEY` no `.env`, fixtures de Neo4j/MySQL quando solicitados) são validados
+**antes** de qualquer processamento.
+
+```sh
+other/full_etl.sh --help                          # ajuda
+other/full_etl.sh                                 # tudo do datasets/e1
+other/full_etl.sh -d datasets/e1 -n 12            # etapa 0 com até 12 capturas
+other/full_etl.sh -d datasets/e1 -n 12 -q 60      # ... e Shodan limitado a 60 linhas (~60 consultas no pior caso)
+other/full_etl.sh -d datasets/e3 --with-mysql     # agregados e3 (sem nomenclatura elegível) + MySQL
+```
+
+> **Nota sobre `-n`:** a estratificação da etapa 0 garante ao menos 1 captura por
+> região presente no dataset (26 regiões no `datasets/e1`); `-n` menor que o número
+> de regiões resulta em 1 captura por região (o script registra a quantidade real
+> em "Capturas na execução").
+>
+> **Créditos Shodan:** sem `-q`, todos os IPs de origem novos consomem ~1 consulta
+> cada. Com `-q N`, apenas as N primeiras linhas do CSV enriquecido chegam à etapa 6.
+
+### Teste rápido sem tocar nos datasets reais
+
+Capturas sintéticas mínimas (nomes inelegíveis para a etapa 0, exercitando o modo
+"todas as capturas" e o fallback alfabético):
+
+```sh
+mkdir -p /tmp/opencode/ds_fake
+# ... gerar *.pcap.gz mínimos em /tmp/opencode/ds_fake ...
+other/full_etl.sh -d /tmp/opencode/ds_fake -q 3
+```
+
+Verificações:
+
+- exit 0 e diretório `datasets/execucao_pipeline_ds_fake_*` criado;
+- artefatos presentes: `output.csv.gz`, `output.enriched.csv.gz`,
+  `output.tex`, `output.shodan.gz`;
+- `zcat <execução>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
+- `zcat <execução>/output.shodan.gz | head -1 | awk -F, '{print NF}'` → 28.
+
+### Opicionais
+
+- `--with-neo4j`: exige `enriched_unique_source_IPs.csv` +
+  `enriched_unique_destination_IPs.csv` na raiz do projeto (bloco correspondente da
+  etapa 2 descomentado); gera `output_neo4j.cypher`. Sem os arquivos, aborta antes
+  de iniciar.
+- `--with-mysql`: exige `mysql.connector` no interpretador usado (`venv/bin/python`
+  se existir) e servidor/credenciais em `src/5_import_mysql.py`. Sem servidor ativo,
+  a própria etapa 5 imprime `FAILED connecting to MySQL` e a execução segue.
+
+### Caminhos de erro (sem efeitos colaterais)
+
+Opção desconhecida, dataset inexistente, `-n`/`-q` não positivos, pré-requisitos
+ausentes → mensagem `[full_etl] ERRO:` e exit 1 **sem criar** diretório de execução.

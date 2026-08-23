@@ -164,3 +164,76 @@ preservando o comportamento original do pipeline. Não tratar esses pacotes.
 - No subconjunto testado, nenhuma região AWS concreta aparece na coluna 17 (todos os
   destinos capturados são endereços privados das instâncias). Para validar regiões
   AWS não triviais, usar um subconjunto com destinos públicos (ex.: `datasets/e3`).
+
+---
+
+## D. Facilitador `other/full_etl.sh` atualizado ao pipeline atual
+
+### Objetivo
+
+O script antigo apenas imprimia um encadeamento obsoleto (etapas 1–3, sem Shodan,
+sem diretório de execução próprio). O objetivo foi transformá-lo em um executor real
+do pipeline atual (etapas 0–6) com opções de limitação e de consumidores opcionais.
+
+### Alterações realizadas
+
+- Reescrita completa de `other/full_etl.sh` (`set -euo pipefail`, `trap ERR`,
+  execução a partir do `PROJECT_ROOT`, independente do CWD).
+- Cada execução cria um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`
+  (sufixo `_2`, `_3`... em colisão de timestamp). O dataset de origem só é lido, via
+  links simbólicos; nada de execuções anteriores é removido ou alterado.
+- Opções:
+  - `-d/--dataset DIR` — origem das capturas (padrão `datasets/e1`);
+  - `-n/--num-pcaps N` — usa a etapa 0 para selecionar até N capturas; se a etapa 0
+    não encontrar nomenclatura elegível (ex.: agregados do `datasets/e3`), faz
+    fallback vinculando as N primeiras `.pcap.gz` por ordem alfabética;
+  - `-q/--shodan-queries N` — alimenta a etapa 6 só com as N primeiras linhas do CSV
+    enriquecido (via `awk 'NR<=n'`, que consome toda a entrada e evita SIGPIPE);
+  - `--with-neo4j` — gera `output_neo4j.cypher`; exige os arquivos
+    `enriched_unique_{source,destination}_IPs.csv` na raiz do projeto;
+  - `--with-mysql` — importa no banco; exige `mysql.connector` no interpretador usado.
+- Saídas sempre geradas: `output.csv.gz` (etapa 1), `output.enriched.csv.gz`
+  (etapa 2), `output.tex` (etapa 3) e `output.shodan.gz` (etapa 6).
+- Preflight antes de qualquer processamento: existência do dataset, validade dos
+  argumentos, `tshark` no PATH, dependências Python (`geoip2`, `awsipranges`,
+  `shodan`, `dotenv`), presença de `SHODAN_API_KEY` em `.env` (verificação silenciosa,
+  sem expor o valor) e pré-requisitos de Neo4j/MySQL quando solicitados.
+
+### Comportamento esperado
+
+- Execuções sucessivas criam diretórios isolados; o dataset de origem permanece
+  intocado; falhas abortam com mensagem `[full_etl] ERRO:` e exit 1, sem criar
+  diretório quando ocorrem no preflight.
+- CSV enriquecido com 18 colunas; saída Shodan com 28 colunas.
+
+### Testes realizados e resultados
+
+| # | Cenário | Resultado esperado | Resultado obtido |
+|---|---|---|---|
+| 1 | `bash -n other/full_etl.sh` | sintaxe válida | OK |
+| 2 | `--help` | texto de ajuda, exit 0 | OK |
+| 3 | opção desconhecida / dataset inexistente / `-n abc` / `-n 0` / `-q -3` | exit 1, nenhum diretório criado | OK |
+| 4 | `--with-neo4j` sem fixtures na raiz | abort antecipado, nada criado | OK |
+| 5 | `--with-mysql` sem `mysql.connector` no venv | abort antecipado | OK |
+| 6 | Execução completa com 2 pcaps sintéticos mínimos (`/tmp/opencode/ds_fake`, nomes inelegíveis), `-q 3` | exit 0; 4 artefatos gerados; 18 e 28 colunas | OK — Shodan processou 2 linhas (2 API calls, IPs novos; cache 234→236) |
+| 7 | Fallback: mesmo dataset sintético com `-n 1` | aviso + 1 captura por ordem alfabética | OK |
+| 8 | `--with-neo4j` com fixtures temporários de IPs únicos | `output_neo4j.cypher` com `create`/`merge` | OK — fixtures removidos após o teste |
+| 9 | Execução real: `-d datasets/e1 -n 4 -q 5` | exit 0; artefatos + manifestos da etapa 0 | OK — etapa 0 selecionou 26 capturas (≥1 por região); Shodan: 5 linhas, 5 cache hits, 0 API calls |
+| 10 | Execução a partir de outro CWD (`/tmp/opencode`) | artefatos no `datasets/` do projeto | OK |
+
+Os diretórios de execução criados nos testes foram removidos ao final.
+
+### Problemas ou limitações
+
+- `-n` menor que o número de regiões do dataset resulta em 1 captura por região
+  (26 no `datasets/e1`): comportamento de `allocate_quotas` na etapa 0
+  (`min_per_region=1`), documentado na ajuda do script. Não alterado por ser
+  decisão de estratificação metodológica.
+- A etapa 4 lê 17 colunas do CSV enriquecido (índices deslocados em relação às 18
+  colunas atuais) e depende dos `enriched_unique_*_IPs.csv`, hoje não gerados
+  (bloco comentado em `src/2_enrich_csv.py`). Limitação pré-existente, fora do
+  escopo desta alteração; o facilitador apenas valida os pré-requisitos e registra.
+- `mysql.connector` não está instalado no venv local; com servidor indisponível a
+  própria etapa 5 imprime `FAILED connecting to MySQL` e a execução segue.
+- Sem `-q`, todos os IPs de origem novos consomem ~1 consulta Shodan cada; o aviso
+  aparece no log da etapa 6.

@@ -73,6 +73,10 @@ Observações:
 
 - `datasets/e1`, `datasets/e1_subset` e `datasets/e3`: dados brutos e subconjunto de
   trabalho (~37 GiB). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
+- `datasets/execucao_pipeline_<origem>_<data_hora>/`: diretórios criados a cada
+  execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +
+  artefatos `output*`). Cada execução é isolada; nada de execuções anteriores é
+  removido ou alterado.
 - `GeoLite2-City.mmdb` (gratuita) existe apenas em `backups/`; o pipeline usa a
   licenciada `GeoIP2-City.mmdb` (`src/2_enrich_csv.py:7`).
 - `logs/shodan_cache.json` é criado na primeira execução da etapa 6 (cache Shodan).

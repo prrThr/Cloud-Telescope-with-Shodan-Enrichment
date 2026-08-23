@@ -27,7 +27,7 @@
 	- `aggregate_pcaps.sh`: faz a agregação dos `.gz` para `.txt`
 	- `generate_capinfos.sh`: Opcional após rodar o script acima. Serve para extrair dos arquivos `gz`: quantos pacotes estão compactados, quando a captura começou, quando a captura terminou e qual foi a taxa média de pacotes (largura de banda)
 	- `capinfos_packet_count.sh`: Também opcional, após rodar o `generate_capinfos.sh`, entra em cada um dos 26 *capinfos* gerados e soma a quantidade de pacotes que estão ali
-		- `full_etl.sh`: facilitador para rodar o pipeline principal.
+		- `full_etl.sh`: facilitador para rodar o pipeline principal por inteiro (etapas 1→2→3→6, com 0/4/5 opcionais). Cada execução cria um novo diretório `datasets/execucao_pipeline_<origem>_<data_hora>` (o dataset de origem só é lido, via links simbólicos) e nunca altera execuções anteriores. Opções: `-d/--dataset` (origem, padrão `datasets/e1`), `-n/--num-pcaps N` (usa a etapa 0 para selecionar até N capturas; padrão: todas), `-q/--shodan-queries N` (alimenta a etapa 6 só com as N primeiras linhas do CSV enriquecido), `--with-neo4j` (gera `output_neo4j.cypher`, requer os `enriched_unique_*_IPs.csv` na raiz) e `--with-mysql` (importa no banco, requer credenciais em `src/5_import_mysql.py`). `.csv`, LaTeX e Shodan são sempre gerados; valida pré-requisitos (tshark, dependências Python, `SHODAN_API_KEY`) antes de iniciar. Detalhes e testes: `tests/exemplos_de_testes.md` e `contexto/implementacoes_e_testes.md`.
 	- `import_pcaps_onto_securityonions.sh`: Opcional: automação para importar os `pcaps` para dentro do *securityonion*
 	- `testawsranges.py`: testa se um determinado arquivo `csv` gerado pelo pipeline de fato contem IPs de destino que pertencem a AWS.
 	
