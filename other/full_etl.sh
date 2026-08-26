@@ -46,6 +46,10 @@ Opções:
                            ativo e credenciais configuradas em src/5_import_mysql.py.
   -h, --help               Exibe esta ajuda.
 
+Interrupção: Ctrl+C durante uma etapa finaliza-a graciosamente, preserva os
+artefatos parciais e segue para a próxima etapa (etapas dependentes de entrada
+ausente são puladas). Um segundo Ctrl+C encerra imediatamente.
+
 Exemplos:
   other/full_etl.sh
   other/full_etl.sh -d datasets/e1 -n 48
@@ -58,7 +62,33 @@ log() { echo "[full_etl] $*"; }
 die() { echo "[full_etl] ERRO: $*" >&2; exit 1; }
 
 RUN_DIR="(ainda não criado)"
-trap 'log "Falha na linha $LINENO — execução interrompida (artefatos parciais preservados em $RUN_DIR)"' ERR
+trap 'log "Falha na linha $LINENO — execução encerrada com erro (artefatos parciais preservados em $RUN_DIR)"' ERR
+
+INT_COUNT=0
+INT_VISTO=0
+STAGE_PID=""
+
+matar_arvore() {
+    local pid="$1" filho
+    for filho in $(pgrep -P "$pid" 2>/dev/null); do
+        matar_arvore "$filho"
+    done
+    kill -TERM "$pid" 2>/dev/null || true
+}
+
+ao_interromper() {
+    INT_COUNT=$((INT_COUNT + 1))
+    if (( INT_COUNT >= 2 )); then
+        log "Segundo Ctrl+C recebido — encerrando agora (artefatos parciais preservados em $RUN_DIR)."
+        exit 130
+    fi
+    INT_VISTO=1
+    log "Ctrl+C recebido — interrompendo a etapa atual graciosamente (pressione novamente para sair imediatamente)."
+    if [[ -n "$STAGE_PID" ]] && kill -0 "$STAGE_PID" 2>/dev/null; then
+        matar_arvore "$STAGE_PID"
+    fi
+}
+trap ao_interromper INT TERM
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -123,6 +153,121 @@ link_pcaps() {
     done
 }
 
+exige() {
+    if [[ ! -s "$1" ]]; then
+        log "AVISO: entrada $1 indisponível ou vazia — pulando esta etapa."
+        return 1
+    fi
+}
+
+rodar() {
+    local rotulo="$1" funcao="$2"
+    INT_COUNT=0
+    INT_VISTO=0
+    STAGE_PID=""
+    log "Etapa $rotulo"
+    local st=0
+    ( "$funcao" ) & STAGE_PID=$!
+    until ! kill -0 "$STAGE_PID" 2>/dev/null; do
+        wait "$STAGE_PID" 2>/dev/null
+        sleep 0.05
+    done
+    wait "$STAGE_PID" 2>/dev/null || st=$?
+    STAGE_PID=""
+    if (( INT_VISTO == 1 )); then
+        log "AVISO: etapa $rotulo interrompida pelo usuário (Ctrl+C) — mantendo os dados parciais e seguindo para a próxima etapa."
+    elif (( st != 0 )); then
+        die "falha na etapa $rotulo (código $st)"
+    fi
+}
+
+etapa1_extracao() {
+    python3 src/1_generate_tshark_csv.py "$RUN_DIR"
+}
+
+etapa2_enriquecimento() {
+    exige "$RUN_DIR/output.csv.gz" || return 0
+    local st=0
+    zcat "$RUN_DIR/output.csv.gz" | "$PY" src/2_enrich_csv.py | gzip > "$ENRICHED" || st=$?
+    if (( st == 130 || st == 143 )); then
+        return "$st"
+    fi
+    if (( st != 0 )) && [[ ! -s "$ENRICHED" ]]; then
+        return "$st"
+    fi
+    if (( st != 0 )); then
+        log "AVISO: entrada possivelmente truncada por interrupção anterior — processando apenas os dados recuperáveis."
+    fi
+    read -r LINHAS FALLBACK < <(zcat "$ENRICHED" | awk -F, '{n++; if ($13 == "ZZ") f++} END {print n+0, f+0}') || true
+    LINHAS=${LINHAS:-0}
+    FALLBACK=${FALLBACK:-0}
+    if (( LINHAS > 0 && FALLBACK == LINHAS )); then
+        log "AVISO: 100% dos destinos ficaram no fallback GeoIP/AWS (${LINHAS} linhas com ZZ/Unknown na coluna M-R)."
+        log "AVISO: causa típica — destinos privados nas capturas (ex.: datasets/e1); para geo/região de destino significativos, processe destinos públicos (ex.: datasets/e3). Ver contexto/implementacoes_e_testes.md, seção C."
+    fi
+}
+
+etapa3_resumo() {
+    exige "$ENRICHED" || return 0
+    local st=0
+    zcat "$ENRICHED" | "$PY" src/3_summarize_radiation.py > "$RUN_DIR/output.tex" || st=$?
+    if (( st == 130 || st == 143 )); then
+        return "$st"
+    fi
+    if (( st != 0 )) && [[ ! -s "$RUN_DIR/output.tex" ]]; then
+        return "$st"
+    fi
+    (( st == 0 )) || log "AVISO: entrada possivelmente truncada por interrupção — resumo gerado sobre os dados recuperáveis."
+    return 0
+}
+
+etapa6_shodan() {
+    exige "$ENRICHED" || return 0
+    local st=0
+    if [[ -n "$SHODAN_QUERIES" ]]; then
+        zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.gz" || st=$?
+    else
+        zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.gz" || st=$?
+    fi
+    if (( st == 130 || st == 143 )); then
+        return "$st"
+    fi
+    if (( st != 0 )) && [[ ! -s "$RUN_DIR/output.shodan.gz" ]]; then
+        return "$st"
+    fi
+    (( st == 0 )) || log "AVISO: entrada possivelmente truncada por interrupção — Shodan aplicado aos dados recuperáveis."
+    return 0
+}
+
+etapa4_neo4j() {
+    (( WITH_NEO4J )) || return 0
+    exige "$ENRICHED" || return 0
+    local st=0
+    zcat "$ENRICHED" | "$PY" src/4_generate_graph.py > "$RUN_DIR/output_neo4j.cypher" || st=$?
+    if (( st == 130 || st == 143 )); then
+        return "$st"
+    fi
+    if (( st != 0 )) && [[ ! -s "$RUN_DIR/output_neo4j.cypher" ]]; then
+        return "$st"
+    fi
+    (( st == 0 )) || log "AVISO: entrada possivelmente truncada por interrupção — Cypher gerado sobre os dados recuperáveis."
+    return 0
+}
+
+etapa5_mysql() {
+    (( WITH_MYSQL )) || return 0
+    exige "$ENRICHED" || return 0
+    local st=0
+    zcat "$ENRICHED" | "$PY" src/5_import_mysql.py || st=$?
+    if (( st == 130 || st == 143 )); then
+        return "$st"
+    fi
+    if (( st != 0 )); then
+        log "AVISO: importação MySQL/MariaDB encerrou com código $st (dados parciais podem ter sido inseridos)."
+    fi
+    return 0
+}
+
 log "Dataset de origem: $DATASET_ABS"
 log "Diretório da execução: $RUN_DIR"
 
@@ -144,40 +289,19 @@ mapfile -t SELECIONADOS < <(find "$RUN_DIR" -maxdepth 1 -type l -name '*.pcap.gz
 [[ ${#SELECIONADOS[@]} -gt 0 ]] || die "Nenhuma captura .pcap.gz disponível para processar em $RUN_DIR"
 log "Capturas na execução: ${#SELECIONADOS[@]}"
 
-log "Etapa 1 — extração tshark"
-bash src/1_generate_tshark_csv.sh "$RUN_DIR"
-
 ENRICHED="$RUN_DIR/output.enriched.csv.gz"
 
-log "Etapa 2 — enriquecimento GeoIP + AWS"
-zcat "$RUN_DIR/output.csv.gz" | "$PY" src/2_enrich_csv.py | gzip > "$ENRICHED"
-
-read -r LINHAS FALLBACK < <(zcat "$ENRICHED" | awk -F, '{n++; if ($13 == "ZZ") f++} END {print n+0, f+0}')
-if (( LINHAS > 0 && FALLBACK == LINHAS )); then
-    log "AVISO: 100% dos destinos ficaram no fallback GeoIP/AWS (${LINHAS} linhas com ZZ/Unknown na coluna M-R)."
-    log "AVISO: causa típica — destinos privados nas capturas (ex.: datasets/e1); para geo/região de destino significativos, processe destinos públicos (ex.: datasets/e3). Ver contexto/implementacoes_e_testes.md, seção C."
-fi
-
-log "Etapa 3 — resumo LaTeX"
-zcat "$ENRICHED" | "$PY" src/3_summarize_radiation.py > "$RUN_DIR/output.tex"
-
+rodar "1 — extração tshark" etapa1_extracao
+rodar "2 — enriquecimento GeoIP + AWS" etapa2_enriquecimento
 if [[ -n "$SHODAN_QUERIES" ]]; then
-    log "Etapa 6 — enriquecimento Shodan (limitado às $SHODAN_QUERIES primeiras linhas)"
-    zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.gz"
+    log "Etapa 6 limitada às $SHODAN_QUERIES primeiras linhas do CSV enriquecido"
 else
-    log "Etapa 6 — enriquecimento Shodan (todas as linhas; cada IP novo consome 1 consulta)"
-    zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.gz"
+    log "Etapa 6 processará todas as linhas; cada IP novo consome 1 consulta"
 fi
-
-if [[ "$WITH_NEO4J" -eq 1 ]]; then
-    log "Etapa 4 — grafo Neo4j (Cypher)"
-    zcat "$ENRICHED" | "$PY" src/4_generate_graph.py > "$RUN_DIR/output_neo4j.cypher"
-fi
-
-if [[ "$WITH_MYSQL" -eq 1 ]]; then
-    log "Etapa 5 — importação MySQL/MariaDB"
-    zcat "$ENRICHED" | "$PY" src/5_import_mysql.py
-fi
+rodar "3 — resumo LaTeX" etapa3_resumo
+rodar "6 — enriquecimento Shodan" etapa6_shodan
+rodar "4 — grafo Neo4j (Cypher)" etapa4_neo4j
+rodar "5 — importação MySQL/MariaDB" etapa5_mysql
 
 log "Execução concluída: $RUN_DIR"
 log "Artefatos gerados:"
