@@ -40,7 +40,7 @@ Para evitar processar o dataset completo no desenvolvimento local, use o estági
 A etapa 0 reconhece a nomenclatura padrão (`<região><az>-<IP>-<data>-<hora>`) e funciona com o `datasets/e3` atual (capturas brutas). Para testes rápidos, use `--max-files` pequeno. Detalhes: `contexto/dataset_e3.md`.
 
 - `python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 48 --clean`
-- `time src/1_generate_tshark_csv.sh datasets/e3_subset`
+- `python3 src/1_generate_tshark_csv.py datasets/e3_subset`
 - `time zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz`
 
 Se quiser uma amostra ainda menor para depuração rápida, reduza `--max-files` para 12 ou 24.
@@ -48,11 +48,11 @@ Se quiser uma amostra ainda menor para depuração rápida, reduza `--max-files`
 ### Exemplo rápido de comandos ETL (Extract-Transform-Load)
 
 - Remova arquivos `output.csv` ou `output.csv.gz` anteriores, caso existam de execuções passadas.
-- O script `1_generate_tshark_csv.sh` espera encontrar um conjunto de arquivos `pcap` compactados com `gzip` no mesmo diretório. Como resultado, ele gera um único arquivo compactado chamado `output.csv.gz`. Ajuste conforme necessário.
+- O script `1_generate_tshark_csv.py` espera encontrar um conjunto de arquivos `pcap` compactados com `gzip` no mesmo diretório. Como resultado, ele gera um único arquivo compactado chamado `output.csv.gz`. Ajuste conforme necessário.
 
 ### Exemplo de execução ETL sequencial com medição de tempo em cada etapa
 
-- `time ./1_generate_tshark_csv.sh`
+- `python3 ./1_generate_tshark_csv.py`
 - `time zcat output.csv.gz | python 2_enrich_csv.py | gzip > output.csv.enriched.gz`
 - `time zcat output.csv.enriched.gz | python 3_summarize_radiation.py > output.tex`
 

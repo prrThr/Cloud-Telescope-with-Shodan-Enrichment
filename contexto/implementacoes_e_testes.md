@@ -67,7 +67,7 @@ Consumo total de créditos nos testes: 1.
 
 ---
 
-## B. Workaround tshark para `.pcap.gz` (`src/1_generate_tshark_csv.sh`)
+## B. Workaround tshark para `.pcap.gz` (`src/1_generate_tshark_csv.py`)
 
 ### Objetivo
 
@@ -93,7 +93,7 @@ Linha de extração alterada para descomprimir e ler do stdin:
 
 ### Comportamento esperado
 
-`src/1_generate_tshark_csv.sh datasets/eX_subset` produz `output.csv.gz` com as 7
+`src/1_generate_tshark_csv.py datasets/eX_subset` produz `output.csv.gz` com as 7
 colunas originais, sem erros de leitura.
 
 ### Teste realizado e resultados
@@ -101,7 +101,7 @@ colunas originais, sem erros de leitura.
 | Item | Resultado esperado | Resultado obtido |
 |---|---|---|
 | `zcat ... \| tshark -r -` isolado | extrai campos | OK |
-| `src/1_generate_tshark_csv.sh datasets/e3_subset` (subconjunto existente) | `output.csv.gz` com dados
+| `src/1_generate_tshark_csv.py datasets/e3_subset` (subconjunto existente) | `output.csv.gz` com dados
 
 ### Problemas ou limitações
 

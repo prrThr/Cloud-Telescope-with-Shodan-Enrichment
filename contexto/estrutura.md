@@ -54,7 +54,7 @@ Diretório raiz: `ibr-etl`
 ├── README.md
 ├── src/
 │   ├── 0_select_representative_subset.py
-│   ├── 1_generate_tshark_csv.sh
+│   ├── 1_generate_tshark_csv.py
 │   ├── 2_enrich_csv.py
 │   ├── 3_summarize_radiation.py
 │   ├── 4_generate_graph.py

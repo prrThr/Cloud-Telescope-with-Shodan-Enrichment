@@ -51,7 +51,7 @@ python3 src/0_select_representative_subset.py datasets/e3 \
 ### 1.2 Etapa 1 — Extração (tshark)
 
 ```sh
-src/1_generate_tshark_csv.sh datasets/e3_subset
+python3 src/1_generate_tshark_csv.py datasets/e3_subset
 ```
 
 > Produz `datasets/e3_subset/output.csv.gz` com colunas
@@ -209,7 +209,7 @@ Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas
 ```sh
 rm -rf datasets/e3_subset
 python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 12 --clean
-src/1_generate_tshark_csv.sh datasets/e3_subset
+python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz

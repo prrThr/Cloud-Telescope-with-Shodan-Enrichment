@@ -57,7 +57,7 @@ python3 src/0_select_representative_subset.py datasets/e3 \
 Depois disso, o pipeline segue normalmente:
 
 ```sh
-src/1_generate_tshark_csv.sh datasets/e3_subset
+python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz \
     | venv/bin/python src/2_enrich_csv.py \
     | gzip > datasets/e3_subset/output.enriched.csv.gz

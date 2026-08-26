@@ -132,7 +132,7 @@ consumidores paralelos (resumo, grafo, MySQL).
 | Etapa | Arquivo | Entrada → Saída |
 |---|---|---|
 | 0. Amostragem | `src/0_select_representative_subset.py` | seleciona subconjunto representativo do dataset (estratificação por região + seleção sistemática), cria `subset_manifest.{csv,json}` |
-| 1. Extração | `src/1_generate_tshark_csv.sh` | `dir/*.pcap.gz` → `dir/output.csv.gz` (colunas `time,ip.src,ip.dst,tcp.dstport,tcp.flags.str,udp.dstport,icmp.type`) |
+| 1. Extração | `src/1_generate_tshark_csv.py` | `dir/*.pcap.gz` → `dir/output.csv.gz` (colunas `time,ip.src,ip.dst,tcp.dstport,tcp.flags.str,udp.dstport,icmp.type`) |
 | 2. Enriquecimento | `src/2_enrich_csv.py` | `output.csv.gz` → `output.enriched.csv.gz` (adiciona GeoIP de origem e destino + região AWS; descarta janelas de exclusão) |
 | 3. Resumo | `src/3_summarize_radiation.py` | `output.enriched.csv.gz` → `output.tex` (agregações de radiação) |
 | 4. Grafo | `src/4_generate_graph.py` | CSV de IPs únicos → Cypher para Neo4j |
@@ -146,7 +146,7 @@ A etapa 6 adiciona campos nas posições 18–27 do CSV (após `awsregion`).
 
 ```sh
 python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 48 --clean
-src/1_generate_tshark_csv.sh datasets/e3_subset
+python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
@@ -232,6 +232,8 @@ fix(api): corrige validação de token expirado
 
 refactor(database): simplifica camada de acesso aos dados
 ```
+
+A IA **não** deve sem executar commit sem que o humano (usuário) à sinalize.
 
 ### Fluxo de Finalização
 
