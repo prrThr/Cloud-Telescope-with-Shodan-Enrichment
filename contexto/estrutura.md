@@ -21,15 +21,13 @@ Diretório raiz: `ibr-etl`
 ├── contexto/
 │   ├── claude_memory.md       # lições de sessões anteriores (auxiliar)
 │   ├── Cloud_Telescope.md     # TCC do prof. Bortoluzzi (referência conceitual)
-│   ├── e1_vs_e3.md            # diferenças entre datasets e uso nos testes (vivo)
+│   ├── dataset_e3.md            # diferenças entre datasets e uso nos testes (vivo)
 │   ├── estrutura.md           # este arquivo (vivo)
 │   ├── implementacoes_e_testes.md  # registro histórico de implementações/testes
 │   ├── instrucoes.md          # processo detalhado de trabalho para agentes de IA
 │   ├── pipeline.md            # etapas atuais do pipeline (vivo)
 │   └── TCC_2_ArthurPereira_PosBanca.md  # TCC do Arthur (referência conceitual)
 ├── datasets/
-│   ├── e1/
-│   ├── e1_subset/
 │   └── e3/
 ├── Docker/
 │   ├── docker-compose.yml
@@ -71,8 +69,8 @@ Diretório raiz: `ibr-etl`
 
 Observações:
 
-- `datasets/e1`, `datasets/e1_subset` e `datasets/e3`: dados brutos e subconjunto de
-  trabalho (~37 GiB). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
+- `datasets/e3`: dataset-alvo com ~21.300 capturas brutas `.pcap.gz` (≈42.600 arquivos
+  contando `.pcap.txt`). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
 - `datasets/execucao_pipeline_<origem>_<data_hora>/`: diretórios criados a cada
   execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +
   artefatos `output*`). Cada execução é isolada; nada de execuções anteriores é
@@ -84,11 +82,11 @@ Observações:
 - Hierarquia e papéis da documentação: seção "Hierarquia da documentação" no
   `AGENTS.md`.
 
-Dentro do diretório `e1` existem arquivos como (nomenclatura bruta):
+Dentro do diretório `e3` existem arquivos como (nomenclatura bruta):
 
-`af-south-1b-13.244.71.194-20230502-0017.pcap.gz`
-`af-south-1b-13.244.71.194-20230501-1217.pcap.txt`
-`af-south-1b-13.244.71.194-20230501-1217.pcap.gz`
+`af-south-1a-13.244.104.42-20231219-2011.pcap.gz`
+`af-south-1a-13.244.104.42-20231219-2011.pcap.txt`
+`af-south-1a-13.244.104.42-20231220-2011.pcap.gz`
 ...
 
-Padrão completo em `AGENTS.md` (Nomenclatura das capturas) e `contexto/e1_vs_e3.md`.
+Padrão completo em `AGENTS.md` (Nomenclatura das capturas).

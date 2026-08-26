@@ -2,7 +2,7 @@
 
 > **Status:** registro histórico auxiliar, **não-canônico**. Em conflito com código,
 > testes ou documentos vivos (`AGENTS.md`, `contexto/pipeline.md`,
-> `contexto/estrutura.md`, `contexto/e1_vs_e3.md`), investigue antes de decidir.
+> `contexto/estrutura.md`, `contexto/dataset_e3.md`), investigue antes de decidir.
 > Última revisão deste arquivo: 2026-08-23.
 
 ## Propósito e contexto

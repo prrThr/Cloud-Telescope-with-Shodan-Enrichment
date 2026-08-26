@@ -34,7 +34,7 @@ atualize o documento responsável. Ordem de precedência em caso de conflito:
    `AGENTS.md`; não pode contradizê-lo).
 4. **Documentos vivos** — devem refletir a realidade atual do projeto e ser
    atualizados junto com o código: `contexto/pipeline.md`, `contexto/estrutura.md`,
-   `contexto/e1_vs_e3.md`, `tests/exemplos_de_testes.md`.
+   `contexto/dataset_e3.md`, `tests/exemplos_de_testes.md`.
 5. **Referência conceitual** — `contexto/Cloud_Telescope.md`,
    `contexto/TCC_2_ArthurPereira_PosBanca.md` (definem escopo/metodologia; não
    descrevem a implementação corrente).
@@ -47,12 +47,13 @@ não contém regras próprias.
 
 ## Datasets
 
-Os datasets estão disponíveis em:
+O dataset está disponível em:
 
-- `datasets/e1` — Dataset 1.
-- `datasets/e3` — Dataset 3.
+- `datasets/e3` — Dataset 3: capturas brutas com nomenclatura padrão
+  `<região><az>-<IP>-<YYYYMMDD>-<HHMM>.pcap.gz` (~21.300 capturas, ~42.600
+  arquivos incluindo `.pcap.txt`).
 
-Os datasets possuem grande volume de dados e não devem ser lidos ou processados
+O dataset possui grande volume de dados e não deve ser lido ou processado
 integralmente apenas para compreender sua estrutura.
 
 ### Regra geral
@@ -61,14 +62,13 @@ integralmente apenas para compreender sua estrutura.
   `glob`, `du`, `rg`, `cat`, `zcat`, `read`). São ~37 GiB de dados opacos; o opencode
   já respeita o `.gitignore`, cuidado apenas com comandos `bash` crus.
 - Para compreender a estrutura dos dados, use a documentação (`AGENTS.md`,
-  `contexto/e1_vs_e3.md`, `contexto/estrutura.md`) e as regex
+  `contexto/dataset_e3.md`, `contexto/estrutura.md`) e as regex
   `FILENAME_RE`/`REGION_AZ_RE` em `src/0_select_representative_subset.py`.
-  Exceção: executar as etapas do pipeline sobre `datasets/e1_subset` (amostra
-  pequena), validando apenas códigos de saída e contagens, sem ler o conteúdo gerado.
-- Não processe os datasets completos durante testes de desenvolvimento.
+  Exceção: executar as etapas do pipeline sobre um diretório de execução ou subconjunto
+  (amostra pequena), validando apenas códigos de saída e contagens, sem ler o conteúdo
+  gerado.
+- Não processe o dataset completo durante testes de desenvolvimento.
 - Prefira amostras pequenas e representativas.
-- Não leia ou escaneie `datasets/e1/aggregated` ou `datasets/e3/final_results`
-  sem necessidade explícita.
 
 ### Nomenclatura das capturas
 
@@ -78,28 +78,19 @@ A nomenclatura padrão é:
 <região>-<az>-<IP>-<YYYYMMDD>-<HHMM>.pcap.gz
 ```
 
-Exemplo: `af-south-1b-13.244.71.194-20230501-1217.pcap.gz`
+Exemplo: `af-south-1a-13.244.104.42-20231219-2011.pcap.gz`
 
 Representa:
 região: `af-south-1`
-Availability Zone: `b`
-IP: `13.244.71.194`
-data: `2023-05-01`
-horário: `12:17`
+Availability Zone: `a`
+IP: `13.244.104.42`
+data: `2023-12-19`
+horário: `20:11`
 
-
-No Dataset 1 (`e1`), região e AZ aparecem combinadas no nome, como `af-south-1b`.
-Consulte `src/0_select_representative_subset.py`, especialmente `FILENAME_RE` e
-`REGION_AZ_RE`, quando precisar compreender ou alterar o parser dos nomes.
-
-### Coletas atuais
-
-- `datasets/e1` — Dataset 1: ~2.300 capturas brutas `.pcap.gz` (≈4.600 arquivos com os
-  `.pcap.txt`), estratificadas por região, + `aggregated/` (26 consolidados por região).
-- `datasets/e3` — Dataset 3: 26 arquivos agregados por região (`e3_<região>.pcap.gz`)
-  + `capinfos/` + `final_results/` (~17 GiB de resultados de processamento anterior).
-  `aggregated/` (e1) e `final_results/` (e3) não devem ser lidos/escaneados sem
-  necessidade explícita. Diferenças e uso: `contexto/e1_vs_e3.md`.
+A etapa 0 (`src/0_select_representative_subset.py`) reconhece esta nomenclatura
+para amostragem estratificada por região. Consulte `FILENAME_RE` e `REGION_AZ_RE`
+em `src/0_select_representative_subset.py` quando precisar compreender ou alterar
+o parser dos nomes.
 
 ## Contexto do projeto (leia antes de qualquer modificação)
 
@@ -110,7 +101,7 @@ Os documentos ficam em `contexto/`; seus papéis estão definidos na hierarquia 
 - `contexto/TCC_2_ArthurPereira_PosBanca.md` — TCC do Arthur (especificação a seguir).
 - `contexto/pipeline.md` — etapas atuais do pipeline (vivo; atualizar junto com o código).
 - `contexto/estrutura.md` — árvore de arquivos do projeto (viva; atualizar ao mover/criar/remover).
-- `contexto/e1_vs_e3.md` — diferenças entre datasets e como usá-los nos testes (vivo).
+- `contexto/dataset_e3.md` — diferenças entre datasets e como usá-los nos testes (vivo).
 - `contexto/implementacoes_e_testes.md` — registro histórico de implementações/testes.
 - `contexto/claude_memory.md` — lições de sessões anteriores (auxiliar, não-canônico).
 
@@ -154,17 +145,16 @@ A etapa 6 adiciona campos nas posições 18–27 do CSV (após `awsregion`).
 ### Exemplos de execução
 
 ```sh
-python3 src/0_select_representative_subset.py datasets/e1 --output datasets/e1_subset --max-files 48 --clean
-src/1_generate_tshark_csv.sh datasets/e1_subset
-zcat datasets/e1_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e1_subset/output.enriched.csv.gz
-zcat datasets/e1_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e1_subset/output.shodan.gz
-zcat datasets/e1_subset/output.enriched.csv.gz | python src/3_summarize_radiation.py > datasets/e1_subset/output.tex
+python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 48 --clean
+src/1_generate_tshark_csv.sh datasets/e3_subset
+zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
 ```
 
-> A etapa 0 exige a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`) e deve rodar
-> sobre `datasets/e1`. Os agregados do `datasets/e3` (`e3_<região>.pcap.gz`) não são
-> elegíveis para amostragem — na produção, consuma-os diretamente na etapa 1. Detalhes:
-> `contexto/e1_vs_e3.md`.
+> A etapa 0 reconhece a nomenclatura padrão `<região><az>-<IP>-<data>-<hora>` e
+> funciona com o `datasets/e3` atual (capturas brutas). Para testes rápidos, use
+> `--max-files` pequeno. Detalhes: `contexto/dataset_e3.md`.
 
 ## Contrato de pipeline
 - **stdin/stdout com CSV** — cada etapa lê CSV da entrada padrão e emite CSV (compactado com `gzip`) na saída padrão. Preserve isso em novos módulos.
