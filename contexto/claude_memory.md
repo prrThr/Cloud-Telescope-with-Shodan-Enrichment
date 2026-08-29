@@ -2,7 +2,7 @@
 
 > **Status:** registro histórico auxiliar, **não-canônico**. Em conflito com código,
 > testes ou documentos vivos (`AGENTS.md`, `contexto/pipeline.md`,
-> `contexto/estrutura.md`, `contexto/e1_vs_e3.md`), investigue antes de decidir.
+> `contexto/estrutura.md`, `contexto/dataset_e3.md`), investigue antes de decidir.
 > Última revisão deste arquivo: 2026-08-23.
 
 ## Propósito e contexto
@@ -31,7 +31,7 @@ O pipeline (ibr-etl) foi reorganizado para portabilidade e replicabilidade:
   (retry limitado, cache enxuto, gravação em lote, validação IPv4, workaround tshark).
 - A API key hardcoded foi identificada e **corrigida** — segredos agora vivem em `.env`.
 
-Fluxo do pipeline: `1_generate_tshark_csv.sh` → `2_enrich_csv.py` →
+Fluxo do pipeline: `1_generate_tshark_csv.py` → `2_enrich_csv.py` →
 `6_shodan_enrich.py` → consumidores paralelos (`3_summarize_radiation.py`,
 `4_generate_graph.py`, `5_import_mysql.py`) → visualizações comparativas (planejadas).
 As etapas 3–5 consomem o mesmo CSV enriquecido em paralelo, não sequencialmente.

@@ -29,7 +29,7 @@ for d in * ; do
 		cd ${d};
 
 		echo "Step 1: Generating CSV"
-		~/ibr-etl/1_generate_tshark_csv.sh
+		python3 ~/ibr-etl/src/1_generate_tshark_csv.py
 
 		echo "Step 2: Enriching CSV"
 		zcat output.csv.gz | ~/ibr-venv/bin/python ~/ibr-etl/2_enrich_csv.py | gzip > ${d}.rich.csv.gz

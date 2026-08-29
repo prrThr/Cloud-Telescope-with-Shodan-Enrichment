@@ -114,12 +114,11 @@ Quando uma implementação modificar:
 
 atualize `pipeline.md`.
 
-### `e1_vs_e3.md`
+### `dataset_e3.md`
 
-Registra as diferenças entre `datasets/e1` e `datasets/e3` (organização, período,
-nível de consolidação) e como cada um deve ser usado nos testes. Consulte-o sempre
-que a tarefa envolver execução do pipeline sobre dados reais ou amostragem
-(etapa 0).
+Registra a estrutura do dataset e3 (capturas brutas com nomenclatura padrão) e como
+usá-lo nos testes. Consulte-o sempre que a tarefa envolver execução do pipeline sobre
+dados reais ou amostragem (etapa 0).
 
 ### `implementacoes_e_testes.md`
 
@@ -141,28 +140,25 @@ de decidir. Novas implementações devem registrar seus testes conforme a seçã
 Os datasets estão localizados em:
 
 ```text
-datasets/e1/
 datasets/e3/
 ```
 
-Eles possuem grande volume de dados (~37 GiB) e **não devem ser listados, lidos,
-abertos ou escaneados** — nem integralmente, nem por amostra. Essa é uma regra de
-segurança/integridade definida no `AGENTS.md` e prevalece sobre qualquer outra
-instrução deste arquivo.
+O dataset contém capturas brutas individuais (~21.300 `.pcap.gz`, ~42.600 arquivos
+contando `.pcap.txt`) e possui grande volume de dados (~37 GiB) — **não deve ser
+listado, lido, aberto ou escaneado**. Essa é uma regra de segurança/integridade
+definida no `AGENTS.md` e prevalece sobre qualquer outra instrução deste arquivo.
 
 Para compreender a estrutura dos dados, use apenas:
 
-- documentação: nomenclatura no `AGENTS.md`, diferenças entre datasets em
-  `contexto/e1_vs_e3.md`, árvore em `contexto/estrutura.md`;
+- documentação: nomenclatura no `AGENTS.md`, estrutura em `contexto/dataset_e3.md`,
+  árvore em `contexto/estrutura.md`;
 - código existente: regex `FILENAME_RE`/`REGION_AZ_RE` em
   `src/0_select_representative_subset.py`;
-- execuções controladas do pipeline sobre `datasets/e1_subset` (amostra pequena),
+- execuções controladas do pipeline sobre um subconjunto (amostra pequena),
   validando somente códigos de saída e contagens, sem ler o conteúdo gerado.
 
 Restrições adicionais:
 
-- Não leia ou escaneie `datasets/e1/aggregated/` ou `datasets/e3/final_results/`
-  sem necessidade explícita.
 - Não use os datasets completos em testes rotineiros de desenvolvimento.
 - Prefira amostras pequenas e representativas (`--max-files` pequeno).
 

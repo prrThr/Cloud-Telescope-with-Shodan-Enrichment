@@ -30,19 +30,18 @@ venv/bin/python -m py_compile src/2_enrich_csv.py src/6_shodan_enrich.py
 ## 1. Pipeline principal (stdin → stdout, compactado com gzip)
 
 Contrato: cada etapa lê CSV do **stdin** e emite CSV no **stdout**. Os comandos
-abaixo usam um diretório de amostra pequeno e **removem `output*.csv*` antigos**
+abaixos usam um diretório de amostra pequeno e **removem `output*.csv*` antigos**
 antes, conforme as regras do projeto.
 
 ### 1.1 Etapa 0 — Amostragem (seleção de subconjunto)
 
-A etapa 0 exige a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`), presente na
-raiz de `datasets/e1`. Os agregados do `datasets/e3` (`e3_<região>.pcap.gz`) **não**
-são elegíveis — detalhes em `contexto/e1_vs_e3.md`.
+A etapa 0 reconhece a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`) e
+funciona com o `datasets/e3` atual (capturas brutas com nomenclatura padrão).
 
 ```sh
-rm -rf datasets/e1_subset
-python3 src/0_select_representative_subset.py datasets/e1 \
-    --output datasets/e1_subset --max-files 12 --clean
+rm -rf datasets/e3_subset
+python3 src/0_select_representative_subset.py datasets/e3 \
+    --output datasets/e3_subset --max-files 12 --clean
 ```
 
 > Gera `subset_manifest.{csv,json}` dentro do diretório de saída. Use `--max-files`
@@ -52,10 +51,10 @@ python3 src/0_select_representative_subset.py datasets/e1 \
 ### 1.2 Etapa 1 — Extração (tshark)
 
 ```sh
-src/1_generate_tshark_csv.sh datasets/e1_subset
+python3 src/1_generate_tshark_csv.py datasets/e3_subset
 ```
 
-> Produz `datasets/e1_subset/output.csv.gz` com colunas
+> Produz `datasets/e3_subset/output.csv.gz` com colunas
 > `time,ip.src,ip.dst,tcp.dstport,tcp.flags.str,udp.dstport,icmp.type`.
 >
 > **Nota:** o script descomprime cada captura com `zcat` e lê via stdin
@@ -65,14 +64,14 @@ src/1_generate_tshark_csv.sh datasets/e1_subset
 > versão do Wireshark e `-r arquivo.pcap.gz` voltar a funcionar, o `zcat` pode ser
 > removido.
 >
-> Verificação: `zcat datasets/e1_subset/output.csv.gz | wc -l` deve ser > 0.
+> Verificação: `zcat datasets/e3_subset/output.csv.gz | wc -l` deve ser > 0.
 
 ### 1.3 Etapa 2 — Enriquecimento (GeoIP + AWS)
 
 ```sh
-zcat datasets/e1_subset/output.csv.gz \
+zcat datasets/e3_subset/output.csv.gz \
     | venv/bin/python src/2_enrich_csv.py \
-    | gzip > datasets/e1_subset/output.enriched.csv.gz
+    | gzip > datasets/e3_subset/output.enriched.csv.gz
 ```
 
 > Adiciona GeoIP de origem/destino + região AWS (18 colunas por linha). Gera logs
@@ -86,19 +85,19 @@ zcat datasets/e1_subset/output.csv.gz \
 >   trimmed_entries`. As anômalas são pacotes multi-camada IP (ICMP de erro que
 >   embute o cabeçalho original / túneis IP-in-IP), nos quais `ip.src`/`ip.dst`
 >   aparecem duplicados (`\,` no dump do tshark) e falham no "DIRTY IP CHECK"
->   (2_enrich_csv.py:41). Esse descarte é **intencional** (decisão de projeto,
->   ~0,07% no e1_subset); não "corrigir".
+>   (2_enrich_csv.py:41). Esse descarte é **intencional** (decisão de projeto);
+>   não "corrigir".
 >
 > Verificação rápida:
 > ```sh
-> zcat datasets/e1_subset/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'  # 18
+> zcat datasets/e3_subset/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'  # 18
 > ```
 
 ### 1.4 Etapa 3 — Resumo (LaTeX)
 
 ```sh
-zcat datasets/e1_subset/output.enriched.csv.gz \
-    | venv/bin/python src/3_summarize_radiation.py > datasets/e1_subset/output.tex
+zcat datasets/e3_subset/output.enriched.csv.gz \
+    | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
 ```
 
 > Agregações de radiação; saída em texto/LaTeX (não gzip).
@@ -106,9 +105,9 @@ zcat datasets/e1_subset/output.enriched.csv.gz \
 ### 1.5 Etapa 6 — Enriquecimento Shodan
 
 ```sh
-zcat datasets/e1_subset/output.enriched.csv.gz \
+zcat datasets/e3_subset/output.enriched.csv.gz \
     | venv/bin/python src/6_shodan_enrich.py \
-    | gzip > datasets/e1_subset/output.shodan.gz
+    | gzip > datasets/e3_subset/output.shodan.gz
 ```
 
 > Adiciona os 10 campos Shodan (posições 18–27). Usa o cache padrão
@@ -118,7 +117,7 @@ zcat datasets/e1_subset/output.enriched.csv.gz \
 10 Shodan). Conferir com:
 
 ```sh
-zcat datasets/e1_subset/output.shodan.gz | head -1 | awk -F, '{print NF}'
+zcat datasets/e3_subset/output.shodan.gz | head -1 | awk -F, '{print NF}'
 ```
 
 ---
@@ -208,13 +207,90 @@ testes rápidos do pipeline priorize as etapas 0–3 e 6.
 Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas antes:
 
 ```sh
-rm -rf datasets/e1_subset
-python3 src/0_select_representative_subset.py datasets/e1 --output datasets/e1_subset --max-files 12 --clean
-src/1_generate_tshark_csv.sh datasets/e1_subset
-zcat datasets/e1_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e1_subset/output.enriched.csv.gz
-zcat datasets/e1_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e1_subset/output.tex
-zcat datasets/e1_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e1_subset/output.shodan.gz
+rm -rf datasets/e3_subset
+python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 12 --clean
+python3 src/1_generate_tshark_csv.py datasets/e3_subset
+zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
+zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz
 ```
 
 > Não há framework de lint/test padronizado no projeto. `py_compile` + execução com
 > amostra pequena + conferência do número de colunas são as validações de referência.
+
+---
+
+## 5. Facilitador `other/full_etl.sh`
+
+Executa o pipeline por inteiro (etapas 1→2→3→6; etapa 0 quando `-n`; etapas 4 e 5
+opcionais) criando um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`
+por execução. O dataset de origem só é lido (links simbólicos); execuções anteriores
+nunca são removidas ou alteradas. Pré-requisitos (tshark, dependências Python,
+`SHODAN_API_KEY` no `.env`, fixtures de Neo4j/MySQL quando solicitados) são validados
+**antes** de qualquer processamento.
+
+```sh
+other/full_etl.sh --help                          # ajuda
+other/full_etl.sh                                 # tudo do datasets/e3 (padrão)
+other/full_etl.sh -d datasets/e3 -n 12            # etapa 0 com até 12 capturas
+other/full_etl.sh -d datasets/e3 -n 12 -q 60      # ... e Shodan limitado a 60 linhas (~60 consultas no pior caso)
+```
+
+> **Nota sobre `-n`:** a estratificação da etapa 0 garante ao menos 1 captura por
+> região presente no dataset (26 regiões no `datasets/e3`); `-n` menor que o número
+> de regiões resulta em 1 captura por região (o script registra a quantidade real
+> em "Capturas na execução").
+>
+> **Créditos Shodan:** sem `-q`, todos os IPs de origem novos consomem ~1 consulta
+> cada. Com `-q N`, apenas as N primeiras linhas do CSV enriquecido chegam à etapa 6.
+
+### Teste rápido sem tocar nos datasets reais
+
+Capturas sintéticas mínimas (nomes inelegíveis para a etapa 0, exercitando o modo
+"todas as capturas" e o fallback alfabético):
+
+```sh
+mkdir -p /tmp/opencode/ds_fake
+# ... gerar *.pcap.gz mínimos em /tmp/opencode/ds_fake ...
+other/full_etl.sh -d /tmp/opencode/ds_fake -q 3
+```
+
+Verificações:
+
+- exit 0 e diretório `datasets/execucao_pipeline_ds_fake_*` criado;
+- artefatos presentes: `output.csv.gz`, `output.enriched.csv.gz`,
+  `output.tex`, `output.shodan.gz`;
+- `zcat <execução>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
+- `zcat <execução>/output.shodan.gz | head -1 | awk -F, '{print NF}'` → 28.
+
+### Aviso de fallback de destino
+
+Após a etapa 2, o script conta as linhas com destino no fallback (coluna M = `ZZ`)
+e, **se 100% delas** caírem no fallback, emite um `[full_etl] AVISO:` explicando a
+causa típica (destinos privados) e sugerindo destinos públicos. Execuções com ao menos
+um destino geolocalizado não emitem o aviso. Para testar os dois caminhos sem tocar
+nos datasets reais:
+
+```sh
+mkdir -p /tmp/opencode/ds_priv /tmp/opencode/ds_mix
+# ... gerar pcaps sintéticos mínimos:
+#     ds_priv/a1.pcap.gz → 1 pacote com dst privado (ex.: 172.31.39.30)
+#     ds_mix/b1.pcap.gz  → 1 pacote dst privado + 1 pacote dst público AWS
+other/full_etl.sh -d /tmp/opencode/ds_priv   # deve exibir o AVISO
+other/full_etl.sh -d /tmp/opencode/ds_mix    # NÃO deve exibir o AVISO
+```
+
+### Opicionais
+
+- `--with-neo4j`: exige `enriched_unique_source_IPs.csv` +
+  `enriched_unique_destination_IPs.csv` na raiz do projeto (bloco correspondente da
+  etapa 2 descomentado); gera `output_neo4j.cypher`. Sem os arquivos, aborta antes
+  de iniciar.
+- `--with-mysql`: exige `mysql.connector` no interpretador usado (`venv/bin/python`
+  se existir) e servidor/credenciais em `src/5_import_mysql.py`. Sem servidor ativo,
+  a própria etapa 5 imprime `FAILED connecting to MySQL` e a execução segue.
+
+### Caminhos de erro (sem efeitos colaterais)
+
+Opção desconhecida, dataset inexistente, `-n`/`-q` não positivos, pré-requisitos
+ausentes → mensagem `[full_etl] ERRO:` e exit 1 **sem criar** diretório de execução.

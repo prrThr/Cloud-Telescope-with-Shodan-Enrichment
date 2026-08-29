@@ -13,7 +13,7 @@ dataset inteiro. A estratégia usada é:
 Aplica-se a diretórios com capturas brutas na nomenclatura
 <região><az>-<IP>-<data>-<hora> (ex.: a raiz de datasets/e1). Os agregados
 por região (ex.: datasets/e3/e3_<região>.pcap.gz) não são elegíveis — ver
-contexto/e1_vs_e3.md.
+contexto/dataset_e3.md.
 
 Uso típico:
 
@@ -23,7 +23,7 @@ Uso típico:
 
 Depois disso, o diretório de saída pode ser processado pelo pipeline normal:
 
-  time src/1_generate_tshark_csv.sh datasets/e1_subset
+  python3 src/1_generate_tshark_csv.py datasets/e1_subset
   time zcat datasets/e1_subset/output.csv.gz | python src/2_enrich_csv.py \
       | gzip > datasets/e1_subset/output.enriched.csv.gz
 """
