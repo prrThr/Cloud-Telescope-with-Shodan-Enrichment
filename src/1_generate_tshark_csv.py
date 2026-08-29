@@ -1,21 +1,43 @@
 #!/usr/bin/env python3
 
-import sys
-import os
+import argparse
 import glob
+import os
 import subprocess
+import sys
 import shutil
 import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(f"Uso: {sys.argv[0]} <diretório do dataset>  (ex: datasets/e1)", file=sys.stderr)
-        sys.exit(1)
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Extrai campos relevantes de pacotes .pcap.gz via tshark.",
+    )
+    parser.add_argument(
+        "dataset_dir",
+        help="Diretório contendo arquivos .pcap.gz (ex: datasets/e1_subset)",
+    )
+    parser.add_argument(
+        "--max-files",
+        type=int,
+        default=None,
+        help="Número máximo de arquivos .pcap.gz a processar (padrão: todos)",
+    )
+    parser.add_argument(
+        "--packet-limit",
+        type=int,
+        default=None,
+        help="Limite de pacotes por arquivo .pcap.gz, repassado ao tshark via -c (ex: 50000)",
+    )
+    return parser.parse_args()
 
-    dataset_dir = sys.argv[1]
+
+def main():
+    args = parse_args()
+
+    dataset_dir = args.dataset_dir
     output = os.path.join(dataset_dir, "output.csv.gz")
 
     if os.path.isfile(output):
@@ -25,27 +47,42 @@ def main():
 
     pcap_files = sorted(glob.glob(os.path.join(dataset_dir, "*.pcap.gz")))
 
+    if args.max_files is not None:
+        pcap_files = pcap_files[: args.max_files]
+
+    if not pcap_files:
+        print("Nenhum arquivo .pcap.gz encontrado.", file=sys.stderr)
+        sys.exit(1)
+
     for f in pcap_files:
         print(f"  - {os.path.basename(f)}")
         sys.stdout.flush()
 
         t0 = time.time()
         f_out = open(output, "ab")
+
         p_zcat = subprocess.Popen(["zcat", f], stdout=subprocess.PIPE)
+
+        tshark_cmd = [
+            "tshark", "-r", "-", "-M", "100000", "-t", "ad",
+            "-T", "fields",
+            "-e", "_ws.col.Time",
+            "-e", "ip.src",
+            "-e", "ip.dst",
+            "-e", "tcp.dstport",
+            "-e", "tcp.flags.str",
+            "-e", "udp.dstport",
+            "-e", "icmp.type",
+            "-E", "separator=,",
+            "--log-level", "critical",
+        ]
+        if args.packet_limit is not None:
+            tshark_cmd.extend(["-c", str(args.packet_limit)])
+
         p_tshark = subprocess.Popen(
-            ["tshark", "-r", "-", "-M", "100000", "-t", "ad",
-             "-T", "fields",
-             "-e", "_ws.col.Time",
-             "-e", "ip.src",
-             "-e", "ip.dst",
-             "-e", "tcp.dstport",
-             "-e", "tcp.flags.str",
-             "-e", "udp.dstport",
-             "-e", "icmp.type",
-             "-E", "separator=,",
-             "--log-level", "critical"],
+            tshark_cmd,
             stdin=p_zcat.stdout,
-            stdout=subprocess.PIPE
+            stdout=subprocess.PIPE,
         )
         p_gzip = subprocess.Popen(["gzip", "-c"], stdin=p_tshark.stdout, stdout=f_out)
 

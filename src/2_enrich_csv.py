@@ -233,19 +233,8 @@ for rawline in lines_buf:
         #     enriched_destination=ipdst + "," + aws_country_code + "," + aws_country_name + "," + aws_city_name + "," + aws_latitude + "," + aws_longitude + "," + aws_region
         #     unique_ipdst_enriched_output.append(enriched_destination)
 
-        # The exclusion list allows for capture trimming. The provided list works with the three first captures conducted in 2023.
-        exclude=0
-        exclude_timestamp_ranges=['2023-04', '2023-06', '2023-07', '2023-09-16', '2023-09-17', '2023-09-18', '2023-09-19', '2023-09-20', '2023-09-30' , '2024-03']
-        for range in exclude_timestamp_ranges:
-            if range in timestamp:
-                exclude=1
-
-        # Leave a break line above to exit the if condition
         output=timestamp + "," + ipsrc + "," + ipdst + "," + tcpdstport + "," + tcpdstflags + "," + udpdstport + "," + icmptype + "," + source_country_iso_code + "," + source_country_name + "," + source_city_name + "," + source_latitude + "," + source_longitude + "," + aws_country_code + "," + aws_country_name + "," + aws_city_name + "," + aws_latitude + "," + aws_longitude + "," + aws_region
-        if exclude == 0:
-            print(output)
-        else:
-            trimmed_entries.write(output + "\n")
+        print(output)
     else:
         anomalous_entries.write(rawline)
 
