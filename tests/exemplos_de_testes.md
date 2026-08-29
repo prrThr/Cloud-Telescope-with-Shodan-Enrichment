@@ -107,7 +107,7 @@ zcat datasets/e3_subset/output.enriched.csv.gz \
 ```sh
 zcat datasets/e3_subset/output.enriched.csv.gz \
     | venv/bin/python src/6_shodan_enrich.py \
-    | gzip > datasets/e3_subset/output.shodan.gz
+    | gzip > datasets/e3_subset/output.shodan.csv.gz
 ```
 
 > Adiciona os 10 campos Shodan (posições 18–27). Usa o cache padrão
@@ -212,7 +212,7 @@ python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_s
 python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
-zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.csv.gz
 ```
 
 > Não há framework de lint/test padronizado no projeto. `py_compile` + execução com
@@ -261,7 +261,7 @@ Verificações:
 - artefatos presentes: `output.csv.gz`, `output.enriched.csv.gz`,
   `output.tex`, `output.shodan.gz`;
 - `zcat <execução>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
-- `zcat <execução>/output.shodan.gz | head -1 | awk -F, '{print NF}'` → 28.
+- `zcat <execução>/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'` → 28.
 
 ### Aviso de fallback de destino
 

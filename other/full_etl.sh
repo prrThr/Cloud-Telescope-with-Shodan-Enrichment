@@ -6,6 +6,7 @@ cd "$PROJECT_ROOT"
 
 DATASET="datasets/e1"
 NUM_PCAPS=""
+PACKET_LIMIT=""
 SHODAN_QUERIES=""
 WITH_NEO4J=0
 WITH_MYSQL=0
@@ -22,7 +23,7 @@ Artefatos sempre gerados no diretório da execução:
   output.csv.gz            etapa 1 — extração tshark
   output.enriched.csv.gz   etapa 2 — enriquecimento GeoIP + AWS
   output.tex               etapa 3 — resumo LaTeX
-  output.shodan.gz         etapa 6 — enriquecimento Shodan
+  output.shodan.csv.gz         etapa 6 — enriquecimento Shodan
 
 Opções:
   -d, --dataset DIR        Diretório de origem das capturas (padrão: datasets/e1).
@@ -39,6 +40,9 @@ Opções:
   -q, --shodan-queries N   Alimenta a etapa 6 apenas com as N primeiras linhas do CSV
                            enriquecido; cada IP de origem novo consome ~1 consulta
                            Shodan (~1 s). Padrão: processa todas as linhas.
+  -p, --packet-limit N     Limite de pacotes por captura na etapa 1 (repassado ao
+                           tshark via -c). Reduz drasticamente o tempo de extração
+                           (ex.: -p 50000 ≈ 5-10 s por arquivo). Padrão: sem limite.
       --with-neo4j         Gera também output_neo4j.cypher (etapa 4). Requer os
                            arquivos enriched_unique_source_IPs.csv e
                            enriched_unique_destination_IPs.csv na raiz do projeto.
@@ -55,6 +59,8 @@ Exemplos:
   other/full_etl.sh -d datasets/e1 -n 48
   other/full_etl.sh -d datasets/e1 -n 12 -q 60
   other/full_etl.sh -d datasets/e3 --with-mysql
+  other/full_etl.sh --dataset datasets/e3_raw --num-pcaps 10 --shodan-queries 60
+  other/full_etl.sh -d datasets/e3 -n 1 -p 60 -q 60
 EOF
 }
 
@@ -94,6 +100,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -d|--dataset)        DATASET="$2"; shift 2 ;;
         -n|--num-pcaps)      NUM_PCAPS="$2"; shift 2 ;;
+        -p|--packet-limit)   PACKET_LIMIT="$2"; shift 2 ;;
         -q|--shodan-queries) SHODAN_QUERIES="$2"; shift 2 ;;
         --with-neo4j)        WITH_NEO4J=1; shift ;;
         --with-mysql)        WITH_MYSQL=1; shift ;;
@@ -106,6 +113,7 @@ is_positive_int() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 
 [[ -d "$DATASET" ]] || die "Diretório do dataset não encontrado: $DATASET"
 [[ -z "$NUM_PCAPS" ]] || is_positive_int "$NUM_PCAPS" || die "--num-pcaps deve ser um inteiro positivo: $NUM_PCAPS"
+[[ -z "$PACKET_LIMIT" ]] || is_positive_int "$PACKET_LIMIT" || die "--packet-limit deve ser um inteiro positivo: $PACKET_LIMIT"
 [[ -z "$SHODAN_QUERIES" ]] || is_positive_int "$SHODAN_QUERIES" || die "--shodan-queries deve ser um inteiro positivo: $SHODAN_QUERIES"
 command -v tshark >/dev/null 2>&1 || die "tshark não encontrado no PATH"
 
@@ -182,7 +190,11 @@ rodar() {
 }
 
 etapa1_extracao() {
-    python3 src/1_generate_tshark_csv.py "$RUN_DIR"
+    local cmd=(python3 src/1_generate_tshark_csv.py "$RUN_DIR")
+    if [[ -n "$PACKET_LIMIT" ]]; then
+        cmd+=(--packet-limit "$PACKET_LIMIT")
+    fi
+    "${cmd[@]}"
 }
 
 etapa2_enriquecimento() {
@@ -225,14 +237,14 @@ etapa6_shodan() {
     exige "$ENRICHED" || return 0
     local st=0
     if [[ -n "$SHODAN_QUERIES" ]]; then
-        zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.gz" || st=$?
+        zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
     else
-        zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.gz" || st=$?
+        zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
     fi
     if (( st == 130 || st == 143 )); then
         return "$st"
     fi
-    if (( st != 0 )) && [[ ! -s "$RUN_DIR/output.shodan.gz" ]]; then
+    if (( st != 0 )) && [[ ! -s "$RUN_DIR/output.shodan.csv.gz" ]]; then
         return "$st"
     fi
     (( st == 0 )) || log "AVISO: entrada possivelmente truncada por interrupção — Shodan aplicado aos dados recuperáveis."
@@ -305,7 +317,7 @@ rodar "5 — importação MySQL/MariaDB" etapa5_mysql
 
 log "Execução concluída: $RUN_DIR"
 log "Artefatos gerados:"
-for ARQUIVO in subset_manifest.csv subset_manifest.json output.csv.gz output.enriched.csv.gz output.tex output.shodan.gz output_neo4j.cypher; do
+for ARQUIVO in subset_manifest.csv subset_manifest.json output.csv.gz output.enriched.csv.gz output.tex output.shodan.csv.gz output_neo4j.cypher; do
     if [[ -e "$RUN_DIR/$ARQUIVO" ]]; then
         log "  $RUN_DIR/$ARQUIVO"
     fi
