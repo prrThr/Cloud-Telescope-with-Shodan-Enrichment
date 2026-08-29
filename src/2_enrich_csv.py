@@ -1,5 +1,7 @@
 import os
 import sys
+import re
+import argparse
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import geoip2.database
@@ -29,7 +31,95 @@ cacheinfo = open(os.path.join(PROJECT_ROOT, 'logs', 'cacheinfo.txt'), "w")
 anomalous_entries = open(os.path.join(PROJECT_ROOT, 'logs', 'anomalous_entries.csv'), "w")
 trimmed_entries = open(os.path.join(PROJECT_ROOT, 'logs', 'trimmed_entries.csv'), "w")
 
+FILENAME_RE = re.compile(
+    r"^(?P<region>.+?)[-_](?P<ip>(?:\d{1,3}\.){3}\d{1,3})[-_](?P<date>\d{4}[-−]?\d{2}[-−]?\d{2}|\d{8})[-_](?P<time>\d{2}[-:]?\d{2}(?:[-:]?\d{2})?)$"
+)
+REGION_AZ_RE = re.compile(r"^(?P<base_region>.+-\d+)(?P<az>[a-z])$")
+
+parser = argparse.ArgumentParser(description="Enriquecimento GeoIP + AWS de CSV de captura")
+parser.add_argument("--region", default=None,
+                    help="Região AWS de destino (ex: af-south-1). Usada como fallback quando 100% "
+                         "dos IPs de destino são privados e não resolvem via GeoIP/awsipranges "
+                         "( esperado em datasets com NAT transparente como e3).")
+args = parser.parse_args()
+
+_region_override = args.region
+_region_from_filename = None
+_detected_fallback = False
+
+
+def _extract_region_from_filename(fname):
+    """Extrai a região AWS a partir do nome do arquivo de captura (ex: af-south-1a-13.244.104.42-20231219-2011)."""
+    stem = fname
+    for ext in ('.pcap.gz', '.pcap.txt', '.pcap'):
+        if stem.endswith(ext):
+            stem = stem[:-len(ext)]
+            break
+    m = FILENAME_RE.match(stem)
+    if m:
+        region_raw = m.group("region")
+        az_m = REGION_AZ_RE.match(region_raw)
+        if az_m:
+            return az_m.group("base_region")
+        return region_raw
+    return None
+
+
+lines_buf = []
 for rawline in sys.stdin:
+    line = rawline.rstrip()
+    parts = line.split(',')
+    if len(parts) == 7 and len(parts[1].split('.')) == 4 and len(parts[2].split('.')) == 4:
+        fname = parts[0]
+        r = _extract_region_from_filename(fname)
+        if r:
+            _region_from_filename = r
+        lines_buf.append(rawline)
+    else:
+        lines_buf.append(rawline)
+
+total_dst = 0
+unknown_dst = 0
+region_override_source = None
+
+for rawline in lines_buf:
+    line = rawline.rstrip()
+    parts = line.split(',')
+    if len(parts) == 7 and len(parts[1].split('.')) == 4 and len(parts[2].split('.')) == 4:
+        total_dst += 1
+        ipdst = parts[2]
+        try:
+            geoip_destination = solver.city(ipdst)
+            aws_response = aws_ip_ranges.get(ipdst)
+            reg = str(aws_response.region) if aws_response and aws_response.region else None
+        except Exception:
+            reg = None
+        if not reg:
+            unknown_dst += 1
+
+if total_dst > 0 and unknown_dst == total_dst:
+    _detected_fallback = True
+    if _region_from_filename:
+        _region_override = _region_from_filename
+        region_override_source = "filename"
+    elif _region_override:
+        region_override_source = "cli"
+    else:
+        region_override_source = None
+    if _region_override:
+        print(f"[2_enrich_csv] FALLBACK ATIVADO: 100% das linhas com região de destino desconhecida "
+              f"(total={total_dst}, unknown={unknown_dst}). Usando região '{_region_override}' "
+              f"(fonte: {region_override_source}).", file=sys.stderr)
+    else:
+        print(f"[2_enrich_csv] AVISO: 100% das linhas com região de destino desconhecida "
+              f"(total={total_dst}, unknown={unknown_dst}). Nenhuma --region fornecida; "
+              f"mantendo 'Unknown'.", file=sys.stderr)
+else:
+    if _region_override:
+        _detected_fallback = False
+        _region_override = None
+
+for rawline in lines_buf:
     # cacheglobalcounter+=1
     # if cacheglobalcounter > 250000:
     #     cachesrc.clear()
@@ -106,12 +196,14 @@ for rawline in sys.stdin:
                 cachedst[ipdst]['latitude'] = str(geoip_destination.location.latitude)#15
                 cachedst[ipdst]['longitude'] = str(geoip_destination.location.longitude)#16
 
-            # região AWS independente do GeoIP (sempre tenta, fallback para Unknown)
-            try:
-                aws_response = aws_ip_ranges.get(ipdst)
-                cachedst[ipdst]['region'] = str(aws_response.region)
-            except:
-                cachedst[ipdst]['region'] = "Unknown" #17
+            if _detected_fallback and _region_override:
+                cachedst[ipdst]['region'] = _region_override
+            else:
+                try:
+                    aws_response = aws_ip_ranges.get(ipdst)
+                    cachedst[ipdst]['region'] = str(aws_response.region)
+                except:
+                    cachedst[ipdst]['region'] = "Unknown" #17
 
         else:
             cachedsthit+=1

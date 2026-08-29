@@ -6,7 +6,6 @@ import glob
 import subprocess
 import shutil
 import time
-from collections import deque
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,24 +24,10 @@ def main():
     print("tshark start")
 
     pcap_files = sorted(glob.glob(os.path.join(dataset_dir, "*.pcap.gz")))
-    last_files = deque(maxlen=5)
-    prev_count = 0
-    tty = sys.stdout.isatty()
 
     for f in pcap_files:
-        last_files.append(os.path.basename(f))
-        window = list(last_files)
-
-        if tty:
-            if prev_count > 0:
-                sys.stdout.write(f"\033[{prev_count}A")
-            for name in window:
-                sys.stdout.write(f"\r\033[K  - {name}\n")
-            sys.stdout.flush()
-            prev_count = len(window)
-        else:
-            sys.stdout.write("  - " + "  ".join(f"({i}) {n}" for i, n in enumerate(window, 1)) + "\n")
-            sys.stdout.flush()
+        print(f"  - {os.path.basename(f)}")
+        sys.stdout.flush()
 
         t0 = time.time()
         f_out = open(output, "ab")
@@ -75,7 +60,7 @@ def main():
         f_out.close()
 
         elapsed = time.time() - t0
-        print(f"  ({elapsed:.2f}s)", file=sys.stderr)
+        print(f"    ({elapsed:.2f}s)", file=sys.stderr)
 
     print("tshark end")
 
