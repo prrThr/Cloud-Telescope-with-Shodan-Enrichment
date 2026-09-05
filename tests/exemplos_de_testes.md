@@ -202,7 +202,48 @@ testes rápidos do pipeline priorize as etapas 0–3 e 6.
 
 ---
 
-## 4. Verificação geral (amostra pequena)
+## 4. Etapa 7 — Análise de resultados
+
+Lê o CSV de 28 colunas (enriquecido + Shodan) e gera distribuições estatísticas
+contando IPs únicos de origem: distribuição por OS, ranking de organizações,
+ranking de ISPs, portas abertas mais comuns com CVEs associados, comparação
+pipeline original (18 col) vs estendido (28 col) e distribuição geográfica de
+origem cruzada com OS.
+
+```sh
+zcat datasets/e3_subset/output.shodan.csv.gz \
+    | venv/bin/python src/7_analyze_results.py \
+        --original-csv datasets/e3_subset/output.enriched.csv.gz \
+        --output-dir datasets/e3_subset
+```
+
+> Requer `pandas` e `matplotlib` no venv. Gera, para cada análise, um CSV e/ou PNG:
+> `os_distribution`, `org_ranking`, `isp_ranking`, `top_ports` + `port_cves` (CSV
+> completo; o terminal exibe apenas amostra), `comparacao_pipeline` e `geo_os_cross`.
+> Colunas: `shodan_os`/`shodan_org`/`shodan_isp`/`porta` + `ips_unicos,percentual`;
+> `port_cves`: `porta,cve,ips_afetados`; `comparacao_pipeline`:
+> `categoria,ips_unicos,pct_original,pct_processados`;
+> `geo_os_cross`: `src_country,shodan_os,ips_unicos`.
+> A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como universo de IPs;
+> sem ele, a base é o próprio CSV de entrada. A análise geográfica gera apenas a
+> tabela `geo_os_cross.csv` (país de origem × OS, contagem de IPs únicos); a
+> plotagem em mapa (`geo_os_map.png`) foi descontinuada por ora.
+
+**Verificações:**
+- exit 0;
+- `os_distribution.csv`, `org_ranking.csv`, `isp_ranking.csv`, `top_ports.csv`,
+  `comparacao_pipeline.csv` e `geo_os_cross.csv` presentes;
+- PNGs correspondentes presentes e não vazios;
+- `port_cves.csv` presente (com cabeçalho mesmo sem associações);
+- `comparacao_pipeline.csv` com colunas
+  `categoria,ips_unicos,pct_original,pct_processados`; quando executado sobre o
+  subset truncado (300 linhas), deve indicar `Ainda não consultados` > 0;
+- `geo_os_cross.csv` presente (colunas `src_country,shodan_os,ips_unicos`).
+
+
+---
+
+## 5. Verificação geral (amostra pequena)
 
 Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas antes:
 
@@ -212,7 +253,8 @@ python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_s
 python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
-zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.csv.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | awk 'NR<=300' | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.csv.gz
+zcat datasets/e3_subset/output.shodan.csv.gz | venv/bin/python src/7_analyze_results.py --output-dir datasets/e3_subset
 ```
 
 > Não há framework de lint/test padronizado no projeto. `py_compile` + execução com
@@ -220,7 +262,7 @@ zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_en
 
 ---
 
-## 5. Facilitador `other/full_etl.sh`
+## 6. Facilitador `other/full_etl.sh`
 
 Executa o pipeline por inteiro (etapas 1→2→3→6; etapa 0 quando `-n`; etapas 4 e 5
 opcionais) criando um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`

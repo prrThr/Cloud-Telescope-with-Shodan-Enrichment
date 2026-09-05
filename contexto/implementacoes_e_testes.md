@@ -6,6 +6,73 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## E. Análise de resultados pós-Shodan (`src/7_analyze_results.py`)
+
+### Objetivo
+
+Criar o script de análise e visualização dos resultados do pipeline enriquecido
+(CSV de 28 colunas) exigido pelo Objetivo Específico 4 do TCC (visualizações
+comparativas que demonstram o ganho informacional). Implementação incremental:
+primeiro OS, depois organizações/ISPs, portas+CVEs, comparação 18 vs 28 e, por fim,
+distribuição geográfica × OS.
+
+### Alterações realizadas
+
+- Criação de `src/7_analyze_results.py` (usa apenas `pandas` + `matplotlib`, sem
+  seaborn). Lê o CSV de 28 colunas do stdin e gera, no `--output-dir`:
+  - `os_distribution.{csv,png}` — IPs únicos de origem por OS detectado;
+  - `org_ranking.{csv,png}` e `isp_ranking.{csv,png}` — rankings de orgs/ISPs;
+  - `top_ports.{csv,png}` — portas abertas mais comuns;
+  - `port_cves.csv` — CVEs associados às top 10 portas (associação aproximada: o
+    Shodan agrega CVEs por host, não por serviço/porta);
+  - `comparacao_pipeline.{csv,png}` — comparação original (18 col) vs estendido
+    (28 col); opcionalmente recebe o CSV de 18 col da etapa 2 via `--original-csv`
+    como universo de IPs (sem ele, a base é o próprio CSV de entrada);
+  - `geo_os_cross.csv` — distribuição geográfica (país de origem) cruzada com OS:
+    contagem de IPs únicos por país×OS (tentativas de plotagem sobre o mapa-múndi
+    `other/The_World_map.png` foram abandonadas por ora — scatter com espalhamento
+    de pontos coincidentes não ficou satisfatório).
+- Todas as análises contam **IPs únicos de origem** (não pacotes).
+- Valores vazios de campos Shodan são agrupados em `Sem registro`.
+
+### Comportamento esperado
+
+- Saída em stderr com tabelas resumo (apenas amostra de porta×CVE e país×OS);
+  artefatos CSV/PNG gravados no diretório indicado.
+- Requer `pandas` e `matplotlib` no venv.
+
+### Testes realizados e resultados
+
+Execução sobre o subset real (`datasets/e3_subset`, etapa 6 limitada a 300 linhas —
+216 IPs únicos de origem):
+
+`zcat datasets/e3_subset/output.shodan.csv.gz | venv/bin/python src/7_analyze_results.py --original-csv datasets/e3_subset/output.enriched.csv.gz --output-dir datasets/e3_subset`
+
+| Análise | Resultado esperado | Resultado obtido |
+|---|---|---|
+| Linhas/colunas | 28 colunas lidas | OK — 300 linhas, 216 IPs |
+| OS | poucos IPs com OS | OK — 214 sem registro, Linux 1, Ubuntu 1 |
+| Org/ISP | ranking com "Sem registro" no topo | OK — Google LLC 51 (org), Google LLC 57 (ISP) |
+| Portas | top = 123 (NTP) | OK — 123 com 57 IPs; depois 80/443/22 |
+| porta×CVE | lista de associações | OK — 510 associações no CSV (terminal mostra 20) |
+| Comparação 18 vs 28 | mostrar ganho e não-consultados | OK — original 22.970 IPs; processados 216; ganharam metadados 74; sem dados 142; não consultados 22.754 |
+| Geo × OS | heatmap só quando há OS | OK — Indonesia/Ubuntu e Iran/Linux (1 IP cada) |
+
+### Problemas ou limitações
+
+- A associação porta×CVE é aproximada (limitação da API, já documentada).
+- Com a etapa 6 limitada a 300 linhas no subset atual, a maioria dos 22.970 IPs de
+  origem ainda não foi consultada no Shodan — a comparação 18 vs 28 só terá
+  significado pleno após execução completa da etapa 6 sobre o subconjunto
+  representativo (pendência da fase "Execução do pipeline em subconjunto
+  representativo").
+- CSV do pipeline não possui cabeçalho; o script assume a ordem fixa de 28 colunas
+  (documentada no docstring/`COL_NAMES`).
+
+---
+
+---
+
 ## A. Correções do módulo Shodan (`src/6_shodan_enrich.py`)
 
 ### Objetivo

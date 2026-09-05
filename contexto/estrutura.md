@@ -59,7 +59,8 @@ Diretório raiz: `ibr-etl`
 │   ├── 3_summarize_radiation.py
 │   ├── 4_generate_graph.py
 │   ├── 5_import_mysql.py
-│   └── 6_shodan_enrich.py
+│   ├── 6_shodan_enrich.py
+│   └── 7_analyze_results.py
 ├── tests/
 │   ├── exemplos_de_testes.md  # living spec dos comandos de teste (vivo)
 │   ├── poc_shodan.py
@@ -71,6 +72,7 @@ Observações:
 
 - `datasets/e3`: dataset-alvo com ~21.300 capturas brutas `.pcap.gz` (≈42.600 arquivos
   contando `.pcap.txt`). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
+- `src/7_analyze_results.py`: análise de resultados pós-Shodan (etapa 7; não faz parte do fluxo ETL — lê o CSV de 28 colunas e gera tabelas/gráficos).
 - `datasets/execucao_pipeline_<origem>_<data_hora>/`: diretórios criados a cada
   execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +
   artefatos `output*`). Cada execução é isolada; nada de execuções anteriores é
