@@ -8,6 +8,7 @@ Gera distribuições estatísticas a partir dos metadados Shodan:
   - Portas abertas mais comuns e CVEs associados a essas portas
   - Comparação pipeline original (18 colunas) vs estendido (28 colunas):
     quantos IPs de origem ganharam metadados técnicos do Shodan
+  - Distribuição geográfica de origem (país) cruzada com o OS detectado
 
 Uso:
   zcat output.shodan.csv.gz | python3 7_analyze_results.py \
@@ -337,6 +338,38 @@ def analisar_comparacao(df, caminho_original, output_dir):
           file=sys.stderr)
 
 
+def analisar_geo_os(df, output_dir):
+    """
+    Distribuição geográfica de origem cruzada com o OS detectado.
+    Conta IPs únicos de origem por combinação país × OS e salva em
+    geo_os_cross.csv.
+    """
+    sub = df[["ip_src", "src_country", "src_lat", "src_lon", "shodan_os"]].copy()
+    sub["src_lat"] = pd.to_numeric(sub["src_lat"], errors="coerce")
+    sub["src_lon"] = pd.to_numeric(sub["src_lon"], errors="coerce")
+
+    sub = sub[sub["src_lat"].between(-90, 90) & sub["src_lon"].between(-180, 180)]
+    sub = sub.dropna(subset=["src_lat", "src_lon"])
+    sub = sub.drop_duplicates(subset=["ip_src"])
+    sub["shodan_os"] = sub["shodan_os"].fillna("").replace("", SEM_REGISTRO)
+    sub["src_country"] = sub["src_country"].fillna("").replace("", "País desconhecido")
+
+    cruz = (
+        sub.groupby(["src_country", "shodan_os"])["ip_src"]
+        .nunique()
+        .reset_index(name="ips_unicos")
+    )
+    cruz_csv = cruz.sort_values("ips_unicos", ascending=False)
+    csv_path = os.path.join(output_dir, "geo_os_cross.csv")
+    cruz_csv.to_csv(csv_path, index=False)
+    print(f"Tabela salva: {csv_path}", file=sys.stderr)
+
+    print("\n--- Distribuição geográfica (país) × OS ---", file=sys.stderr)
+    for _, row in cruz_csv.iterrows():
+        print(f"  {row['src_country']:<30} {row['shodan_os']:<20} "
+              f"{int(row['ips_unicos'])} IPs", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Análise de resultados do pipeline enriquecido (28 colunas).",
@@ -423,6 +456,7 @@ def main():
                 )
 
     analisar_comparacao(df, args.original_csv, output_dir)
+    analisar_geo_os(df, output_dir)
 
 
 if __name__ == "__main__":
