@@ -21,6 +21,8 @@
 
 - `6_shodan_enrich.py`: Extensão desenvolvida neste TCC. Recebe o CSV enriquecido pelo passo 2, consulta a API do Shodan para cada IP de origem (após validar que é um IPv4 válido; linhas malformadas são descartadas com log) e adiciona 10 campos ao CSV: organização, ISP, ASN, OS, portas abertas, CPEs, CVEs, tags, hostnames e data do último scan. Implementa cache local em JSON (`logs/shodan_cache.json`) enxuto — sem banners/serviços brutos — gravado em lote a cada N IPs novos (`--cache-save-every`, padrão 500) e ao final da execução; rate-limit configurável (`--rate-limit`, padrão 1s), retentativas limitadas tanto para falhas de rede (backoff exponencial) quanto para rate limit (pausa fixa de 60s, até 3x). Modos auxiliares: `--info` (grátis), `--demo <IP>` (1 consulta por execução) e `--json`.
 
+- `7_analyze_results.py`: Análise de resultados do pipeline enriquecido (28 colunas). Lê CSV comprimido do stdin e gera distribuições estatísticas. Etapa atual: distribuição de dispositivos por OS detectado pelo Shodan (contagem de IPs únicos de origem por OS). Gera gráfico de barras (PNG) e tabela CSV com contagens e percentuais. Uso: `zcat output.shodan.csv.gz | python3 7_analyze_results.py --output-dir .`
+
 ### Arquivos de suporte
 
 - `other/`: Scripts auxiliares que não fazem parte do fluxo principal: agregar PCAPs de múltiplas regiões, gerar estatísticas de captura (`capinfos`), importar PCAPs no SecurityOnion, processar regiões individualmente.

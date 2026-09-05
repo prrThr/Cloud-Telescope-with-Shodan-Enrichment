@@ -202,7 +202,27 @@ testes rápidos do pipeline priorize as etapas 0–3 e 6.
 
 ---
 
-## 4. Verificação geral (amostra pequena)
+## 4. Etapa 7 — Análise de resultados (distribuição por OS)
+
+Lê o CSV de 28 colunas (enriquecido + Shodan) e gera a distribuição de dispositivos
+por OS detectado, contando IPs únicos de origem.
+
+```sh
+zcat datasets/e3_subset/output.shodan.csv.gz \
+    | venv/bin/python src/7_analyze_results.py --output-dir datasets/e3_subset
+```
+
+> Gera `os_distribution.csv` (tabela com contagens e percentuais) e
+> `os_distribution.png` (gráfico de barras). Requer `pandas` e `matplotlib` no venv.
+
+**Verificações:**
+- exit 0;
+- `os_distribution.csv` presente com colunas `shodan_os,ips_unicos,percentual`;
+- `os_distribution.png` presente e não vazio.
+
+---
+
+## 5. Verificação geral (amostra pequena)
 
 Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas antes:
 
@@ -212,7 +232,8 @@ python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_s
 python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
-zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.csv.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | awk 'NR<=300' | venv/bin/python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.csv.gz
+zcat datasets/e3_subset/output.shodan.csv.gz | venv/bin/python src/7_analyze_results.py --output-dir datasets/e3_subset
 ```
 
 > Não há framework de lint/test padronizado no projeto. `py_compile` + execução com
@@ -220,7 +241,7 @@ zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/6_shodan_en
 
 ---
 
-## 5. Facilitador `other/full_etl.sh`
+## 6. Facilitador `other/full_etl.sh`
 
 Executa o pipeline por inteiro (etapas 1→2→3→6; etapa 0 quando `-n`; etapas 4 e 5
 opcionais) criando um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`
