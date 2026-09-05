@@ -6,9 +6,12 @@ Gera distribuições estatísticas a partir dos metadados Shodan:
   - Distribuição de dispositivos por OS detectado
   - Ranking de organizações e de ISPs com mais IPs de origem
   - Portas abertas mais comuns e CVEs associados a essas portas
+  - Comparação pipeline original (18 colunas) vs estendido (28 colunas):
+    quantos IPs de origem ganharam metadados técnicos do Shodan
 
 Uso:
-  zcat output.shodan.csv.gz | python3 7_analyze_results.py --output-dir .
+  zcat output.shodan.csv.gz | python3 7_analyze_results.py \
+      --original-csv output.enriched.csv.gz --output-dir .
 """
 
 import sys
@@ -17,6 +20,7 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import argparse
+import gzip
 
 import pandas as pd
 import matplotlib
@@ -36,6 +40,12 @@ COL_NAMES = [
 ]
 
 SEM_REGISTRO = "Sem registro"
+
+SHODAN_FIELD_COLS = [
+    "shodan_org", "shodan_isp", "shodan_asn", "shodan_os",
+    "shodan_open_ports", "shodan_cpes", "shodan_cves",
+    "shodan_tags", "shodan_hostnames", "shodan_last_seen",
+]
 
 
 def read_csv_from_stdin():
@@ -196,6 +206,137 @@ def salvar_analise_por_campo(df, campo, base_nome, titulo, xlabel, output_dir):
     return agg
 
 
+def ler_ips_originais(caminho_csv):
+    """
+    Lê um CSV (18 colunas, .gz ou plano) e retorna o conjunto de IPs de origem.
+    """
+    abertura = gzip.open if caminho_csv.endswith(".gz") else open
+    ips = set()
+    with abertura(caminho_csv, "rt", encoding="utf-8") as f:
+        for raw in f:
+            fields = raw.rstrip("\n\r").split(",")
+            if len(fields) >= 2 and fields[1]:
+                ips.add(fields[1])
+    return ips
+
+
+def ips_com_metadados_shodan(df):
+    """Conjunto de IPs de origem com ao menos um campo Shodan preenchido."""
+    sub = df[SHODAN_FIELD_COLS].fillna("") != ""
+    tem_algum = sub.any(axis=1)
+    return set(df.loc[tem_algum, "ip_src"].unique())
+
+
+def plot_comparacao(resumo, output_path):
+    """Gráfico de barras horizontais com o resumo da comparação 18 vs 28."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    categorias = list(resumo.keys())
+    valores = list(resumo.values())
+    cores = [
+        "#3498db",      # total original
+        "#2ecc71",      # ganharam metadados
+        "#95a5a6",      # sem dados Shodan
+        "#f39c12",      # ainda não consultados
+    ]
+
+    bars = ax.barh(categorias[::-1], valores[::-1], color=cores[::-1])
+    ax.set_xlabel("Número de IPs únicos de origem")
+    ax.set_title("Comparação: Pipeline Original (18 colunas) vs Estendido (28 colunas)")
+
+    for bar, val in zip(bars, valores[::-1]):
+        ax.text(bar.get_width() + max(valores) * 0.01,
+                bar.get_y() + bar.get_height() / 2,
+                str(val), va="center", fontsize=9)
+    ax.set_xlim(0, max(valores) * 1.1)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+    print(f"Gráfico salvo: {output_path}", file=sys.stderr)
+
+
+def analisar_comparacao(df, caminho_original, output_dir):
+    """
+    Compara o pipeline original (18 colunas) com o estendido (28 colunas):
+    quantos IPs únicos de origem ganharam metadados técnicos do Shodan.
+    """
+    ips_processados = set(df["ip_src"].unique())
+
+    if caminho_original:
+        ips_originais = ler_ips_originais(caminho_original)
+    else:
+        ips_originais = ips_processados
+
+    ganharam = ips_com_metadados_shodan(df)
+    sem_dados = ips_processados - ganharam
+    nao_consultados = ips_originais - ips_processados
+
+    total_original = len(ips_originais)
+    total_processados = len(ips_processados)
+
+    def pct(n, base):
+        return round(n / base * 100, 2) if base else None
+
+    resumo_df = pd.DataFrame([
+        {
+            "categoria": "Pipeline original (18 col)",
+            "ips_unicos": total_original,
+            "pct_original": 100.0,
+            "pct_processados": None,
+        },
+        {
+            "categoria": "IPs processados pela etapa 6 (28 col)",
+            "ips_unicos": total_processados,
+            "pct_original": pct(total_processados, total_original),
+            "pct_processados": 100.0,
+        },
+        {
+            "categoria": "Ganharam metadados técnicos Shodan",
+            "ips_unicos": len(ganharam),
+            "pct_original": pct(len(ganharam), total_original),
+            "pct_processados": pct(len(ganharam), total_processados),
+        },
+        {
+            "categoria": "Sem dados no Shodan",
+            "ips_unicos": len(sem_dados),
+            "pct_original": pct(len(sem_dados), total_original),
+            "pct_processados": pct(len(sem_dados), total_processados),
+        },
+        {
+            "categoria": "Ainda não consultados (sem Shodan)",
+            "ips_unicos": len(nao_consultados),
+            "pct_original": pct(len(nao_consultados), total_original),
+            "pct_processados": None,
+        },
+    ])
+
+    csv_path = os.path.join(output_dir, "comparacao_pipeline.csv")
+    resumo_df.to_csv(csv_path, index=False)
+    print(f"Tabela salva: {csv_path}", file=sys.stderr)
+
+    resumo_plot = {
+        "Pipeline original (18 col)": total_original,
+        "Ganharam metadados técnicos Shodan": len(ganharam),
+        "Sem dados no Shodan": len(sem_dados),
+        "Ainda não consultados (sem Shodan)": len(nao_consultados),
+    }
+    png_path = os.path.join(output_dir, "comparacao_pipeline.png")
+    plot_comparacao(resumo_plot, png_path)
+
+    print("\n--- Comparação 18 vs 28 colunas ---", file=sys.stderr)
+    print(f"  IPs únicos no pipeline original (18 col): {total_original}",
+          file=sys.stderr)
+    print(f"  IPs processados pela etapa 6 (28 col):    {total_processados}",
+          file=sys.stderr)
+    print(f"  IPs que ganharam metadados Shodan:         {len(ganharam)}",
+          file=sys.stderr)
+    print(f"  IPs sem dados no Shodan:                   {len(sem_dados)}",
+          file=sys.stderr)
+    print(f"  IPs ainda não consultados:                 {len(nao_consultados)}",
+          file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Análise de resultados do pipeline enriquecido (28 colunas).",
@@ -204,6 +345,16 @@ def main():
         "--output-dir",
         default=".",
         help="Diretório de saída para os artefatos gerados (padrão: diretório atual)",
+    )
+    parser.add_argument(
+        "--original-csv",
+        default=None,
+        metavar="ARQUIVO",
+        help=(
+            "CSV do pipeline original (18 colunas, saída da etapa 2), usado na "
+            "comparação 18 vs 28. Se omitido, a base considerada é a dos IPs "
+            "presentes no próprio CSV de entrada."
+        ),
     )
     args = parser.parse_args()
 
@@ -270,6 +421,8 @@ def main():
                     f"(ver {csv_cves})",
                     file=sys.stderr,
                 )
+
+    analisar_comparacao(df, args.original_csv, output_dir)
 
 
 if __name__ == "__main__":
