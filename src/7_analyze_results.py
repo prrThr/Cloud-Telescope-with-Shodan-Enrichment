@@ -2,7 +2,10 @@
 """
 Análise de resultados do pipeline enriquecido (28 colunas).
 
-Gera distribuição de dispositivos por OS detectado pelo Shodan.
+Gera distribuições estatísticas a partir dos metadados Shodan:
+  - Distribuição de dispositivos por OS detectado
+  - Ranking de organizações e de ISPs com mais IPs de origem
+  - Portas abertas mais comuns e CVEs associados a essas portas
 
 Uso:
   zcat output.shodan.csv.gz | python3 7_analyze_results.py --output-dir .
@@ -14,8 +17,6 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import argparse
-import gzip
-from collections import Counter
 
 import pandas as pd
 import matplotlib
@@ -34,11 +35,11 @@ COL_NAMES = [
     "shodan_tags", "shodan_hostnames", "shodan_last_seen",
 ]
 
-SHODAN_OS_IDX = 21
+SEM_REGISTRO = "Sem registro"
 
 
 def read_csv_from_stdin():
-    """Lê CSV comprimido do stdin e retorna DataFrame."""
+    """Lê CSV do stdin e retorna DataFrame com as 28 colunas esperadas."""
     lines = []
     for raw in sys.stdin:
         line = raw.rstrip("\n\r")
@@ -51,53 +52,148 @@ def read_csv_from_stdin():
         print("Nenhuma linha válida lida.", file=sys.stderr)
         sys.exit(1)
 
-    df = pd.DataFrame(lines, columns=COL_NAMES)
-    return df
+    return pd.DataFrame(lines, columns=COL_NAMES)
 
 
-def analyze_os_distribution(df):
+def contagem_por_campo(df, campo):
     """
-    Conta IPs únicos de origem por OS detectado.
-    IPs com shodan_os vazio são classificados como 'Sem registro'.
+    Conta IPs únicos de origem por valor de um campo (coluna) do CSV.
+    Valores vazios (IP sem dados Shodan) são agrupados em 'Sem registro'.
     """
-    ips_by_os = (
-        df.groupby("shodan_os")["ip_src"]
+    agg = (
+        df.groupby(campo)["ip_src"]
         .nunique()
         .reset_index()
         .rename(columns={"ip_src": "ips_unicos"})
     )
+    agg[campo] = agg[campo].replace("", SEM_REGISTRO)
+    agg = agg.sort_values("ips_unicos", ascending=False).reset_index(drop=True)
 
-    ips_by_os["shodan_os"] = ips_by_os["shodan_os"].replace("", "Sem registro")
-    ips_by_os = ips_by_os.sort_values("ips_unicos", ascending=False).reset_index(drop=True)
-
-    total = ips_by_os["ips_unicos"].sum()
-    ips_by_os["percentual"] = (ips_by_os["ips_unicos"] / total * 100).round(2)
-
-    return ips_by_os
+    total = int(agg["ips_unicos"].sum())
+    agg["percentual"] = (agg["ips_unicos"] / total * 100).round(2)
+    return agg
 
 
-def plot_os_distribution(ips_by_os, output_path):
-    """Gera gráfico de barras da distribuição por OS."""
+def ranking_portas(df):
+    """
+    Conta IPs únicos de origem por porta aberta reportada pelo Shodan
+    (campo shodan_open_ports, lista separada por '|').
+    """
+    sub = df[["ip_src", "shodan_open_ports"]].copy()
+    sub = sub[sub["shodan_open_ports"].notna() & (sub["shodan_open_ports"] != "")]
+    sub["porta"] = sub["shodan_open_ports"].str.split("|")
+    flat = sub.explode("porta")
+    flat = flat[flat["porta"].astype(str).str.strip() != ""]
+
+    agg = (
+        flat.groupby("porta")["ip_src"]
+        .nunique()
+        .reset_index()
+        .rename(columns={"ip_src": "ips_unicos"})
+    )
+    agg = agg.sort_values("ips_unicos", ascending=False).reset_index(drop=True)
+
+    total = int(agg["ips_unicos"].sum())
+    agg["percentual"] = (agg["ips_unicos"] / total * 100).round(2)
+    return agg
+
+
+def cves_por_porta(df, top_portas, limite=10):
+    """
+    Para as portas mais comuns (limite), associa os CVEs dos IPs que as possuem.
+    Como o Shodan agrega CVEs por host (e não por serviço), a associação é
+    aproximada: CVEs presentes em IPs que exibem a porta aberta.
+    """
+    pp = df[["ip_src", "shodan_open_ports"]].copy()
+    pp = pp[pp["shodan_open_ports"].notna() & (pp["shodan_open_ports"] != "")]
+    pp["porta"] = pp["shodan_open_ports"].str.split("|")
+    pp = pp.explode("porta")
+    pp = pp[pp["porta"].astype(str).str.strip() != ""]
+    pp = pp[["ip_src", "porta"]].drop_duplicates()
+
+    pc = df[["ip_src", "shodan_cves"]].copy()
+    pc = pc[pc["shodan_cves"].notna() & (pc["shodan_cves"] != "")]
+    pc["cve"] = pc["shodan_cves"].str.split("|")
+    pc = pc.explode("cve")
+    pc = pc[pc["cve"].astype(str).str.strip() != ""]
+    pc = pc[["ip_src", "cve"]].drop_duplicates()
+
+    sel = list(top_portas["porta"].head(limite))
+    pp = pp[pp["porta"].isin(sel)]
+    merged = pp.merge(pc, on="ip_src", how="inner")
+
+    if merged.empty:
+        return pd.DataFrame(columns=["porta", "cve", "ips_afetados"])
+
+    agg = (
+        merged.groupby(["porta", "cve"])
+        .size()
+        .reset_index(name="ips_afetados")
+    )
+    ordem = {p: i for i, p in enumerate(sel)}
+    agg["_ordem"] = agg["porta"].map(ordem)
+    agg = (
+        agg.sort_values(["_ordem", "ips_afetados"], ascending=[True, False])
+        .drop(columns="_ordem")
+        .reset_index(drop=True)
+    )
+    return agg
+
+
+def plot_barras(df, label_col, titulo, xlabel, output_path, top=15):
+    """Gera gráfico de barras horizontais (top N) para uma contagem por campo."""
+    dados = df.head(top).iloc[::-1].reset_index(drop=True)
+
+    labels = dados[label_col].astype(str)
+    values = dados["ips_unicos"].astype(int)
+    colors = ["#95a5a6" if l == SEM_REGISTRO else "#2ecc71" for l in labels]
+
     fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.barh(labels, values, color=colors)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(label_col)
+    ax.set_title(titulo)
 
-    labels = ips_by_os["shodan_os"]
-    values = ips_by_os["ips_unicos"]
-
-    colors = ["#2ecc71" if l != "Sem registro" else "#95a5a6" for l in labels]
-
-    bars = ax.barh(labels[::-1], values[::-1], color=colors[::-1])
-    ax.set_xlabel("Número de IPs únicos de origem")
-    ax.set_ylabel("Sistema Operacional")
-    ax.set_title("Distribuição de Dispositivos por OS Detectado (Shodan)")
-
-    for bar, val in zip(bars, values[::-1]):
-        ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
-                str(val), va="center", fontsize=9)
+    for bar, val in zip(bars, values):
+        ax.text(
+            bar.get_width() + max(values) * 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            str(val),
+            va="center",
+            fontsize=9,
+        )
+    ax.set_xlim(0, max(values) * 1.1)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()
     print(f"Gráfico salvo: {output_path}", file=sys.stderr)
+
+
+def imprimir_contagem(df, campo, titulo):
+    """Exibe no stderr a tabela de contagem gerada."""
+    print(f"\n--- {titulo} ---", file=sys.stderr)
+    for _, row in df.iterrows():
+        print(
+            f"  {str(row[campo]):<40} {int(row['ips_unicos']):>6}  "
+            f"({row['percentual']}%)",
+            file=sys.stderr,
+        )
+
+
+def salvar_analise_por_campo(df, campo, base_nome, titulo, xlabel, output_dir):
+    """Salva CSV + PNG + imprime resumo de uma contagem por campo."""
+    agg = contagem_por_campo(df, campo)
+
+    csv_path = os.path.join(output_dir, f"{base_nome}.csv")
+    agg.to_csv(csv_path, index=False)
+    print(f"Tabela salva: {csv_path}", file=sys.stderr)
+
+    png_path = os.path.join(output_dir, f"{base_nome}.png")
+    plot_barras(agg, campo, titulo, xlabel, png_path)
+
+    imprimir_contagem(agg, campo, titulo)
+    return agg
 
 
 def main():
@@ -118,18 +214,62 @@ def main():
     print(f"Linhas processadas: {len(df)}", file=sys.stderr)
     print(f"IPs únicos de origem: {df['ip_src'].nunique()}", file=sys.stderr)
 
-    ips_by_os = analyze_os_distribution(df)
+    salvar_analise_por_campo(
+        df, "shodan_os", "os_distribution",
+        "Distribuição de Dispositivos por OS Detectado (Shodan)",
+        "Número de IPs únicos de origem", output_dir,
+    )
 
-    csv_path = os.path.join(output_dir, "os_distribution.csv")
-    ips_by_os.to_csv(csv_path, index=False)
-    print(f"Tabela salva: {csv_path}", file=sys.stderr)
+    salvar_analise_por_campo(
+        df, "shodan_org", "org_ranking",
+        "Ranking de Organizações por IPs de Origem (Shodan)",
+        "Número de IPs únicos de origem", output_dir,
+    )
 
-    png_path = os.path.join(output_dir, "os_distribution.png")
-    plot_os_distribution(ips_by_os, png_path)
+    salvar_analise_por_campo(
+        df, "shodan_isp", "isp_ranking",
+        "Ranking de ISPs por IPs de Origem (Shodan)",
+        "Número de IPs únicos de origem", output_dir,
+    )
 
-    print("\n--- Distribuição de OS ---", file=sys.stderr)
-    for _, row in ips_by_os.iterrows():
-        print(f"  {row['shodan_os']:<30} {row['ips_unicos']:>6}  ({row['percentual']}%)", file=sys.stderr)
+    top_portas = ranking_portas(df)
+    if top_portas.empty:
+        print("Nenhuma porta aberta reportada — pulando análise de portas.",
+              file=sys.stderr)
+    else:
+        csv_path = os.path.join(output_dir, "top_ports.csv")
+        top_portas.to_csv(csv_path, index=False)
+        print(f"Tabela salva: {csv_path}", file=sys.stderr)
+
+        png_path = os.path.join(output_dir, "top_ports.png")
+        plot_barras(top_portas, "porta",
+                    "Portas Abertas Mais Comuns (Shodan)",
+                    "Número de IPs únicos de origem", png_path)
+
+        imprimir_contagem(top_portas, "porta", "Portas abertas mais comuns")
+
+        port_cves = cves_por_porta(df, top_portas)
+        csv_cves = os.path.join(output_dir, "port_cves.csv")
+        port_cves.to_csv(csv_cves, index=False)
+        print(f"Tabela salva: {csv_cves}", file=sys.stderr)
+
+        if port_cves.empty:
+            print("Nenhum CVE associado às portas mais comuns.", file=sys.stderr)
+        else:
+            print("\n--- CVEs associados às portas mais comuns (amostra) ---",
+                  file=sys.stderr)
+            for _, row in port_cves.head(20).iterrows():
+                print(
+                    f"  porta {str(row['porta']):<6} {row['cve']:<20} "
+                    f"({row['ips_afetados']} IPs)",
+                    file=sys.stderr,
+                )
+            if len(port_cves) > 20:
+                print(
+                    f"  ... e mais {len(port_cves) - 20} associações "
+                    f"(ver {csv_cves})",
+                    file=sys.stderr,
+                )
 
 
 if __name__ == "__main__":

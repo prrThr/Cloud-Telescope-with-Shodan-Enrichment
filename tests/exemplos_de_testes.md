@@ -202,23 +202,29 @@ testes rápidos do pipeline priorize as etapas 0–3 e 6.
 
 ---
 
-## 4. Etapa 7 — Análise de resultados (distribuição por OS)
+## 4. Etapa 7 — Análise de resultados
 
-Lê o CSV de 28 colunas (enriquecido + Shodan) e gera a distribuição de dispositivos
-por OS detectado, contando IPs únicos de origem.
+Lê o CSV de 28 colunas (enriquecido + Shodan) e gera distribuições estatísticas
+contando IPs únicos de origem: distribuição por OS, ranking de organizações,
+ranking de ISPs e portas abertas mais comuns com CVEs associados.
 
 ```sh
 zcat datasets/e3_subset/output.shodan.csv.gz \
     | venv/bin/python src/7_analyze_results.py --output-dir datasets/e3_subset
 ```
 
-> Gera `os_distribution.csv` (tabela com contagens e percentuais) e
-> `os_distribution.png` (gráfico de barras). Requer `pandas` e `matplotlib` no venv.
+> Requer `pandas` e `matplotlib` no venv. Gera, para cada análise, um CSV e um PNG:
+> `os_distribution`, `org_ranking`, `isp_ranking`, `top_ports` + `port_cves` (CSV
+> completo; o terminal exibe apenas amostra). Colunas: `shodan_os`/`shodan_org`/
+> `shodan_isp`/`porta` + `ips_unicos,percentual`; `port_cves`: `porta,cve,ips_afetados`.
 
 **Verificações:**
 - exit 0;
-- `os_distribution.csv` presente com colunas `shodan_os,ips_unicos,percentual`;
-- `os_distribution.png` presente e não vazio.
+- `os_distribution.csv`, `org_ranking.csv`, `isp_ranking.csv` e `top_ports.csv`
+  presentes com a coluna `ips_unicos`;
+- PNGs correspondentes presentes e não vazios;
+- `port_cves.csv` presente (com cabeçalho mesmo sem associações).
+
 
 ---
 
