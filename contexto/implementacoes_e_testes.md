@@ -6,6 +6,78 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## F. Parada graciosa da coleta Shodan + gravação atômica do cache
+
+### Objetivo
+
+Permitir executar a coleta Shodan (etapa 6) de forma desatendida por horas (ex.:
+durante a madrugada, em subconjunto representativo do Dataset 3) e encerrá-la
+manualmente no dia seguinte **sem** (a) perder pendências de cache — créditos já
+gastos — nem (b) deixar `output.shodan.csv.gz` truncado. Motivação: o Ctrl+C atual
+do `full_etl.sh` envia SIGTERM para a árvore da etapa 6 (zcat/python/gzip); o python
+morre pelo handler default (o `atexit` com `cache.flush()` não roda) e o `gzip` é
+morto no meio da gravação, corrompendo o artefato.
+
+### Alterações realizadas
+
+1. **`src/6_shodan_enrich.py` — marcador de parada (`--stop-file ARQ`):** no topo do
+   laço de cada linha do `process_pipeline`, se o arquivo `ARQ` existir, o loop
+   encerra (`break`), persiste o cache (o `cache.flush()` já existente ao final) e o
+   processo sai com código 0, permitindo ao `gzip` da ponta finalizar um `.gz`
+   íntegro. Relatório final registra "Encerrado por marcador de parada".
+2. **`src/6_shodan_enrich.py` — gravação atômica do cache:** `ShodanCache._save()`
+   agora grava em arquivo temporário no mesmo diretório (`tempfile.mkstemp`) e
+   substitui o cache com `os.replace`, com `flush`+`fsync` antes do replace e limpeza
+   do temporário em caso de falha. Um processo morto durante a gravação não corrompe
+   mais o JSON inteiro (antes, o `open(..., "w")` direto podia deixar o cache ilegível
+   e o `_load` recomeçava vazio — perda total dos créditos).
+3. **`other/full_etl.sh` — opção `-s/--stop-file ARQ`:** repassada à etapa 6 como
+   `--stop-file`. Padrão: `<diretório da execução>/stop_shodan`. O marcador é
+   removido no início da etapa 6 (`rm -f`) e o script loga o comando exato:
+   `touch "<ARQ>"`. Documentação de uso adicionada em `pipeline.md`,
+   `exemplos_de_testes.md` e `implementacoes_e_testes.md`.
+
+### Comportamento esperado
+
+- Com o marcador ausente: comportamento inalterado (processa tudo, 28 colunas).
+- Marcador criado durante a coleta: encerra a linha corrente, faz flush do cache,
+  exit 0, `.gz` válido; via `full_etl.sh`, a execução segue para as etapas seguintes
+  e loga "Execução concluída".
+- Marcador presente desde o início: nenhuma linha processada, saída limpa.
+- Nota: a checagem ocorre no topo do laço; uma linha já lida do stdin quando o
+  marcador é criado é descartada (não entra no `.gz`), reaparecendo numa execução
+  futura sobre o mesmo CSV enriquecido.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `bash -n other/full_etl.sh` | sintaxe válida | OK |
+| `venv/bin/python -m py_compile src/6_shodan_enrich.py` | compila | OK |
+| Módulo S1 — sem marcador, 5 linhas em cache (sem API) | 5 linhas na saída | OK — 5 |
+| Módulo S2 — marcador preexistente | 0 linhas, saída limpa | OK — 0 |
+| Módulo S3 — marcador criado no meio do fluxo | para em ~2 linhas, exit limpo | OK — 2 |
+| Cache atômico — save_every=2 + flush | JSON válido com 3 IPs, sem `.tmp` residual | OK |
+| Cache atômico — reload após gravação | lê 3 IPs | OK |
+| Cache atômico — falha em diretório inexistente | erro logado, `_pending` preservado | OK — pending=1; após criar o dir e re-flush, persistiu |
+| `full_etl.sh` com pcap sintético (`/tmp/opencode/ds_stop`, 1 pacote, src já no cache) + `-s` | exit 0, 28 colunas, marcador aceito, log do `touch` | OK — `output.shodan.csv.gz` 1 linha/28 cols; "Execução concluída"; marcador inexistente ao final |
+
+Testes sem gasto de créditos (todos com cache hits; o smoke E2E do `full_etl.sh`
+consultou apenas `api.info()`). Diretórios de execução de teste removidos ao final.
+
+### Problemas ou limitações
+
+- A parada por marcador depende de checagem a cada linha; no pior caso uma linha em
+  andamento (~1 consulta/segundo) termina antes do encerramento — atraso desprezível
+  para o cenário de coleta noturna.
+- Ctrl+C (SIGINT/SIGTERM) cru na etapa 6 continua podendo truncar o `output.shodan`
+  e perder pendências de cache até o último `--cache-save-every`; o caminho
+  recomendado de interrupção é o marcador `--stop-file`.
+- `full_etl.sh` continua enviando SIGTERM à árvore da etapa 6 em caso de Ctrl+C
+  (comportamento pré-existente, inalterado nesta tarefa).
+
+---
+
 ## E. Análise de resultados pós-Shodan (`src/7_analyze_results.py`)
 
 ### Objetivo
