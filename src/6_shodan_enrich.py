@@ -25,6 +25,9 @@ Modos de uso:
     zcat output.csv.enriched.gz | python3 6_shodan_enrich.py | gzip > output.csv.shodan.gz
     (--cache-save-every N controla a frequência de gravação do cache em disco)
 
+  Interrupção graciosa de coleta longa (criação manual do arquivo marcador):
+    touch PARAR   # encerra ao fim da linha corrente, com flush do cache e .gz íntegro
+
   [DEMO] Visualização detalhada da resposta da API para um IP:
     python3 6_shodan_enrich.py --demo 1.2.3.4
 
@@ -56,6 +59,7 @@ import json
 import re
 import time
 import atexit
+import tempfile
 import logging
 import argparse
 from datetime import datetime, timezone
@@ -190,12 +194,33 @@ class ShodanCache:
             self._save()
 
     def _save(self):
+        """Grava o cache em disco de forma atômica (temporário + os.replace)."""
         try:
-            with open(self.filepath, "w", encoding="utf-8") as f:
+            diretorio = os.path.dirname(os.path.abspath(self.filepath))
+            fd, caminho_tmp = tempfile.mkstemp(
+                dir=diretorio, prefix=".shodan_cache_", suffix=".tmp"
+            )
+        except OSError as e:
+            logger.error(f"Falha ao salvar cache (criar temporário): {e}")
+            return
+        substituido = False
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False)
-            self._pending = 0
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(caminho_tmp, self.filepath)
+            substituido = True
         except OSError as e:
             logger.error(f"Falha ao salvar cache: {e}")
+        finally:
+            if not substituido:
+                try:
+                    os.unlink(caminho_tmp)
+                except OSError:
+                    pass
+        if substituido:
+            self._pending = 0
 
     @staticmethod
     def _slim(record: dict) -> dict:
@@ -575,7 +600,12 @@ def info_mode(api: shodan.Shodan):
 # Modo PIPELINE (CSU02 + CSU03)
 # ---------------------------------------------------------------------------
 
-def process_pipeline(api: shodan.Shodan, cache: ShodanCache, rate_limit: float):
+def process_pipeline(
+    api: shodan.Shodan,
+    cache: ShodanCache,
+    rate_limit: float,
+    stop_file: str | None = None,
+):
     """
     Lê CSV enriquecido do stdin (saída de 2_enrich_csv.py), adiciona os
     campos Shodan e escreve no stdout (RF01, RF02, RF06, RF07 / CSU02, CSU03).
@@ -589,6 +619,11 @@ def process_pipeline(api: shodan.Shodan, cache: ShodanCache, rate_limit: float):
       ...campos originais..., shodan_org, shodan_isp, shodan_asn, shodan_os,
       shodan_open_ports, shodan_cpes, shodan_cves, shodan_tags,
       shodan_hostnames, shodan_last_seen
+
+    stop_file: caminho de um marcador opcional. Quando o arquivo existir, o
+    loop encerra na fronteira entre linhas (após concluir a linha corrente),
+    persiste o cache e sai com código 0 — permitindo interromper uma coleta
+    longa de forma limpa (sem perder pendências de cache e com o .gz íntegro).
     """
     stats = {
         "lines_total":    0,
@@ -597,8 +632,17 @@ def process_pipeline(api: shodan.Shodan, cache: ShodanCache, rate_limit: float):
         "api_calls":      0,
         "no_data":        0,
     }
+    parou = False
 
     for rawline in sys.stdin:
+        if stop_file and Path(stop_file).exists():
+            logger.info(
+                f"Marcador de parada detectado ('{stop_file}') — "
+                f"encerrando a coleta após {stats['lines_total']} linhas."
+            )
+            parou = True
+            break
+
         line   = rawline.rstrip("\n\r")
         fields = line.split(",")
 
@@ -654,7 +698,10 @@ def process_pipeline(api: shodan.Shodan, cache: ShodanCache, rate_limit: float):
     # Relatório final
     cs = cache.stats
     logger.info("─" * 50)
-    logger.info(f"Concluído.")
+    if parou:
+        logger.info("Encerrado por marcador de parada (--stop-file).")
+    else:
+        logger.info(f"Concluído.")
     logger.info(f"  Linhas processadas:  {stats['lines_total']}")
     logger.info(f"  Linhas ignoradas:    {stats['lines_skipped']}")
     logger.info(f"  IPs em cache:        {cs['cached_ips']}")
@@ -719,6 +766,14 @@ def main():
         metavar="N",
         help=f"Grava o cache em disco a cada N IPs novos (padrão: {DEFAULT_SAVE_EVERY})",
     )
+    parser.add_argument(
+        "--stop-file",
+        default=None,
+        metavar="ARQUIVO",
+        help="Caminho de um marcador: quando o arquivo existir, a coleta encerra "
+             "graciosamente na fronteira entre linhas, persiste o cache (flush) e "
+             "sai com código 0. Útil para interromper execuções longas de forma limpa.",
+    )
 
     args = parser.parse_args()
 
@@ -741,7 +796,12 @@ def main():
         # Modo pipeline padrão
         cache = ShodanCache(args.cache_file, save_every=args.cache_save_every)
         atexit.register(cache.flush)
-        process_pipeline(api, cache, rate_limit=args.rate_limit)
+        process_pipeline(
+            api,
+            cache,
+            rate_limit=args.rate_limit,
+            stop_file=args.stop_file,
+        )
 
 
 if __name__ == "__main__":

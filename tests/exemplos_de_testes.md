@@ -180,11 +180,34 @@ venv/bin/python -c "import json; d=json.load(open('logs/shodan_cache.json')); k=
 ```
 
 A gravação ocorre a cada N IPs novos (`--cache-save-every`, padrão 500) e no
-encerramento (`flush`). Para forçar gravação mais frequente em teste:
+encerramento (`flush`), de forma **atômica** (arquivo temporário + `os.replace` —
+um processo morto no meio de uma gravação não corrompe o cache existente). Para
+forçar gravação mais frequente em teste:
 
 ```sh
 ... | venv/bin/python src/6_shodan_enrich.py --cache-save-every 10
 ```
+
+### 2.6 Interrupção graciosa de coleta longa (`--stop-file`)
+
+Para executar a coleta Shodan de madrugada (ex.: `full_etl.sh`) e encerrá-la na
+manhã seguinte **sem perder pendências de cache e com `.gz` íntegro**, use o
+marcador de parada: enquanto o arquivo não existir a coleta prossegue; quando é
+criado (`touch`), o módulo termina a linha corrente, persiste o cache (`flush`) e
+sai com código 0. Testar (sem gastar créditos — IPs já no cache):
+
+```sh
+venv/bin/python -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('m6','src/6_shodan_enrich.py')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+"
+```
+
+> **Nota:** a checagem ocorre no topo do laço de cada linha — se o marcador for
+> criado enquanto uma linha já foi lida do stdin, essa linha é descartada (não
+> entra no `output.shodan`); o cache e o `.gz` permanecem íntegros e a linha
+> reaparece numa execução futura sobre o mesmo CSV enriquecido.
 
 ---
 
@@ -285,6 +308,17 @@ other/full_etl.sh -d datasets/e3 -n 12 -q 60      # ... e Shodan limitado a 60 l
 >
 > **Créditos Shodan:** sem `-q`, todos os IPs de origem novos consomem ~1 consulta
 > cada. Com `-q N`, apenas as N primeiras linhas do CSV enriquecido chegam à etapa 6.
+
+**Coleta longa (ex.: madrugada) com parada manual no dia seguinte:** a etapa 6
+respeita um marcador de parada (`-s/--stop-file`; padrão `<execução>/stop_shodan`).
+Ao criar o arquivo, o módulo encerra a linha corrente, faz `flush` do cache e sai
+com código 0 — a execução segue e o `output.shodan.csv.gz` fica íntegro:
+
+```sh
+other/full_etl.sh -d datasets/e3 -n 300 &        # inicia a coleta
+# na manhã seguinte, encerrar graciosamente (o caminho exato é logado pelo script):
+touch datasets/execucao_pipeline_<origem>_<data_hora>/stop_shodan
+```
 
 ### Teste rápido sem tocar nos datasets reais
 

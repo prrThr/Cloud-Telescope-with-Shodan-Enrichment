@@ -8,6 +8,7 @@ DATASET="datasets/e1"
 NUM_PCAPS=""
 PACKET_LIMIT=""
 SHODAN_QUERIES=""
+STOP_FILE=""
 WITH_NEO4J=0
 WITH_MYSQL=0
 
@@ -40,6 +41,11 @@ Opções:
   -q, --shodan-queries N   Alimenta a etapa 6 apenas com as N primeiras linhas do CSV
                            enriquecido; cada IP de origem novo consome ~1 consulta
                            Shodan (~1 s). Padrão: processa todas as linhas.
+  -s, --stop-file ARQ      Marcador de parada da etapa 6. Quando o arquivo ARQ existir,
+                           a coleta Shodan encerra graciosamente (flush do cache e
+                           output.shodan.csv.gz íntegro) e a execução segue. Padrão:
+                           <diretório da execução>/stop_shodan. Para interromper uma
+                           coleta longa (ex.: madrugada), crie o arquivo com `touch`.
   -p, --packet-limit N     Limite de pacotes por captura na etapa 1 (repassado ao
                            tshark via -c). Reduz drasticamente o tempo de extração
                            (ex.: -p 50000 ≈ 5-10 s por arquivo). Padrão: sem limite.
@@ -52,7 +58,9 @@ Opções:
 
 Interrupção: Ctrl+C durante uma etapa finaliza-a graciosamente, preserva os
 artefatos parciais e segue para a próxima etapa (etapas dependentes de entrada
-ausente são puladas). Um segundo Ctrl+C encerra imediatamente.
+ausente são puladas). Um segundo Ctrl+C encerra imediatamente. Para a etapa 6
+(Shodan), o método recomendado de interrupção é o marcador --stop-file (evita
+perda de pendências de cache e .gz truncado).
 
 Exemplos:
   other/full_etl.sh
@@ -102,6 +110,7 @@ while [[ $# -gt 0 ]]; do
         -n|--num-pcaps)      NUM_PCAPS="$2"; shift 2 ;;
         -p|--packet-limit)   PACKET_LIMIT="$2"; shift 2 ;;
         -q|--shodan-queries) SHODAN_QUERIES="$2"; shift 2 ;;
+        -s|--stop-file)      STOP_FILE="$2"; shift 2 ;;
         --with-neo4j)        WITH_NEO4J=1; shift ;;
         --with-mysql)        WITH_MYSQL=1; shift ;;
         -h|--help)           usage; exit 0 ;;
@@ -149,6 +158,10 @@ while [[ -e "$RUN_DIR" ]]; do
     SUFIXO=$((SUFIXO + 1))
     RUN_DIR="datasets/execucao_pipeline_${ORIGEM}_${STAMP}_${SUFIXO}"
 done
+
+if [[ -z "$STOP_FILE" ]]; then
+    STOP_FILE="$RUN_DIR/stop_shodan"
+fi
 
 DATASET_ABS="$(cd "$DATASET" && pwd)"
 
@@ -236,10 +249,11 @@ etapa3_resumo() {
 etapa6_shodan() {
     exige "$ENRICHED" || return 0
     local st=0
+    rm -f -- "$STOP_FILE"
     if [[ -n "$SHODAN_QUERIES" ]]; then
-        zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
+        zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py --stop-file "$STOP_FILE" | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
     else
-        zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
+        zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py --stop-file "$STOP_FILE" | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
     fi
     if (( st == 130 || st == 143 )); then
         return "$st"
@@ -310,6 +324,8 @@ if [[ -n "$SHODAN_QUERIES" ]]; then
 else
     log "Etapa 6 processará todas as linhas; cada IP novo consome 1 consulta"
 fi
+log "Marcador de parada da etapa 6 (Shodan): $STOP_FILE"
+log "Para encerrar a coleta e finalizar a execução graciosamente: touch \"$STOP_FILE\""
 rodar "3 — resumo LaTeX" etapa3_resumo
 rodar "6 — enriquecimento Shodan" etapa6_shodan
 rodar "4 — grafo Neo4j (Cypher)" etapa4_neo4j
