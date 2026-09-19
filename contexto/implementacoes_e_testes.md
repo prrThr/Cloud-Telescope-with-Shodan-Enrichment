@@ -6,6 +6,66 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## H. Coleta Shodan rotativa entre agregados
+
+### Objetivo
+
+Permitir cobrir os 26 agregados do `datasets/e3_full` mesmo quando cada um é grande
+demais para ser esgotado em tempo hábil. Em vez de esgotar uma região por vez, a
+coleta processa até N consultas **novas** por região e "pula" para a próxima,
+acumulando cobertura de todos os agregados ao longo do tempo, compartilhando o cache
+global (cache hits não consomem crédito nem respeitam rate-limit).
+
+### Alterações realizadas
+
+- **`src/6_shodan_enrich.py` — `--max-new-queries N`:** encerra graciosamente após N
+  consultas novas (cache hits não contam), persiste o cache e sai com código **10**;
+  sem atingir o limite, a entrada termina e sai com código 0. `process_pipeline`
+  passou a retornar o motivo do término (`concluido`/`parado`/`limite`).
+- **`other/shodan_rotation.sh` (novo):** rotacionador. Para cada agregado, prepara
+  uma vez `regions/<região>/output.enriched.csv.gz` (etapas 1+2, reaproveitando se já
+  existir) e roda a etapa 6 com `--max-new-queries N` e `--stop-file`, descartando o
+  stdout e populando o cache. Regiões esgotadas (exit 0) recebem `.done` e são
+  puladas; exit 10 alterna para a próxima. Ao concluir todas, gera
+  `output.enriched.csv.gz` e `output.shodan.csv.gz` (28 colunas) numa passada rápida
+  (tudo cache hit). Opções: `-d`, `-q`, `-p`, `-r`, `-o` (retomada), `-s`, `-c`,
+  `--final`. Loga em `<work-dir>/rotacao.log` e por região em `regions/<região>/shodan.log`.
+
+### Comportamento esperado
+
+- Rotação avança de fato a cada rodada (cache hits não bloqueiam).
+- `-o <dir>` retoma uma coleta interrompida (regiões `.done` puladas).
+- `--stop-file` encerra ao fim da região corrente, com cache persistido.
+- Saída final só é gerada automaticamente quando todas as regiões concluem (ou com
+  `--final`).
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `venv/bin/python -m py_compile src/6_shodan_enrich.py` | compila | OK |
+| `6_shodan_enrich.py --help` | exibe `--max-new-queries` | OK |
+| Teste unitário offline (8 verificações: limite, api_calls, cache, 28 colunas, conclusão, stop, sem cap, retomada avança) | todas passam | OK — 8/8 |
+| `bash -n other/shodan_rotation.sh` | sintaxe válida | OK |
+| `shodan_rotation.sh --help` | ajuda, exit 0, stderr vazio | OK |
+| E2E offline (2 pcaps sintéticos Ethernet+IPv4+UDP, cache temporário pré-povoado, `-q 5`) | 0 API calls; `.done` nas 2 regiões; 18 e 28 colunas; `rotacao.log` não vazio | OK — `API calls: 0`; 5 linhas/28 col; `rotacao.log` com 18 linhas |
+| Retomada (`-o` no mesmo diretório) | pula `.done` e regera a saída final | OK |
+
+Testes sem gasto de créditos (todas as consultas foram cache hits em cache
+temporário). Diretórios de teste em `/tmp/opencode` removidos ao final.
+
+### Problemas ou limitações
+
+- O ramo "exit 10 → próxima região" do rotacionador não é exercitado no teste de 0
+  créditos (com tudo em cache nenhuma região atinge o limite); a lógica de limite é
+  coberta pelo teste unitário da etapa 6 e o despacho do rotacionador é um `elif`
+  simples.
+- Regiões ainda não concluídas são reprocessadas do início a cada rodada (cache hits,
+  sem rate-limit); o custo é de I/O, não de créditos.
+- `--final` com regiões pendentes pode consumir consultas novas (avisado no log).
+
+---
+
 ## G. Sincronização da documentação com os datasets atuais (`e3_raw`/`e3_full`)
 
 ### Objetivo

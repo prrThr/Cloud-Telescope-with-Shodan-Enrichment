@@ -210,6 +210,38 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 > entra no `output.shodan`); o cache e o `.gz` permanecem íntegros e a linha
 > reaparece numa execução futura sobre o mesmo CSV enriquecido.
 
+### 2.7 Limite de consultas novas (`--max-new-queries`, base da rotação)
+
+Encerra após N consultas **novas** (cache hits não contam) e sai com **código 10**;
+sai com código 0 quando a entrada termina. Como cache hits não dormem no
+rate-limit, uma segunda passada avança para os próximos IPs novos. Verificação
+offline (0 créditos) com `query_shodan` simulado:
+
+```sh
+venv/bin/python - <<'PY'
+import io, sys, tempfile, importlib.util
+spec = importlib.util.spec_from_file_location('m6', 'src/6_shodan_enrich.py')
+m6 = importlib.util.module_from_spec(spec); spec.loader.exec_module(m6)
+m6.time.sleep = lambda s: None
+calls = {'n': 0}
+def fake(api, ip, retries=m6.MAX_RETRIES):
+    calls['n'] += 1
+    return {"found": True, "org":"x","isp":"y","asn":"AS1","os":"","open_ports":[],
+            "cpes":[],"cves":[],"tags":[],"hostnames":[],"last_seen":"",
+            "_services_count":0,"_raw_services":[],"_queried_at":"t"}
+m6.query_shodan = fake
+linhas = "".join(f"2023-01-01 00:00:00,10.0.0.{i},f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f\n"
+                 for i in range(1, 6))
+cache = m6.ShodanCache(tempfile.mktemp(suffix='.json'), save_every=100)
+old_in, old_out = sys.stdin, sys.stdout
+sys.stdin, sys.stdout = io.StringIO(linhas), io.StringIO()
+status = m6.process_pipeline(None, cache, rate_limit=0, max_new_queries=3)
+sys.stdin, sys.stdout = old_in, old_out
+print('status:', status, '| api_calls:', calls['n'])   # status: limite | api_calls: 3
+assert status == 'limite' and calls['n'] == 3
+PY
+```
+
 ---
 
 ## 3. Etapas 4 e 5 — consumidores paralelos (grafo / MySQL)
@@ -459,3 +491,65 @@ touch datasets/execucao_pipeline_e3_full_<data_hora>/stop_shodan
 > Nesse caso, use `--stop-file` com caminho conhecido para encerrar depois, e
 > `tail -f logs/shodan_enrich.log` para acompanhar. Prefira `tmux` por permitir
 > reanexar e ver o progresso interativo.
+
+---
+
+## 8. Coleta rotativa entre agregados (`other/shodan_rotation.sh`)
+
+Quando um único agregado é grande demais para ser esgotado em tempo hábil, o
+rotacionador alterna entre as 26 regiões: processa até N consultas **novas** por
+região e passa para a próxima, avançando a cada rodada (cache hits são pulados sem
+rate-limit). Regiões esgotadas viram `.done` e são ignoradas; ao final, gera o CSV
+de 28 colunas numa passada rápida.
+
+Uso típico (coleta longa, em `tmux`):
+
+```sh
+tmux new -s ibr-rotacao
+cd ~/Faculdade/TCC/ibr-etl
+other/shodan_rotation.sh -d datasets/e3_full -q 1000 2>&1 | tee -a logs/rotacao_shodan_$(date +%Y%m%d).log
+# Ctrl+b, d para destacar
+```
+
+- `-q 1000`: até 1000 consultas **novas** por região por rodada.
+- `-o <dir>`: reaproveita um diretório existente para **retomar**.
+- `-c <cache>`: cache compartilhado (padrão do módulo: `logs/shodan_cache.json`).
+- `-p <N>`: limita pacotes por captura na extração (útil em teste).
+- `-r <R>`: número máximo de rodadas (padrão: até concluir tudo ou `--stop-file`).
+- `-s <arq>`: marcador de parada (padrão `<work-dir>/stop_shodan`).
+
+Encerrar graciosamente (o caminho é logado em `[rotacao] Marcador de parada`):
+
+```sh
+touch datasets/rotacao_shodan_e3_full_<data_hora>/stop_shodan
+```
+
+### 8.1 Teste offline (0 créditos) com pcaps sintéticos
+
+Pré-povoe um cache temporário com os IPs de origem das capturas para que a etapa 6
+não faça nenhuma consulta à API. Gere pcaps mínimos (Ethernet+IPv4+UDP) e rode o
+rotacionador:
+
+```sh
+mkdir -p /tmp/opencode/rot_ds
+# ... gerar e3_reg-a.pcap.gz e e3_reg-b.pcap.gz com IPs de origem distintos ...
+# ... criar /tmp/opencode/rot_cache.json com esses IPs de origem já "found" ...
+other/shodan_rotation.sh -d /tmp/opencode/rot_ds -q 5 \
+    -c /tmp/opencode/rot_cache.json -o /tmp/opencode/rot_work
+```
+
+Verificações:
+
+- exit 0; `[rotacao] Todas as regiões concluídas.`;
+- `regions/<região>/.done` presente para cada região;
+- `rotacao.log` não vazio;
+- `zcat <work>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
+- `zcat <work>/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'` → 28;
+- nenhuma chamada de API (`API calls: 0` no `logs/shodan_enrich.log`).
+
+> **Retomada:** rode de novo com o mesmo `-o <dir>` — regiões `.done` são puladas e
+> a saída final é regerada.
+>
+> **Caminho de limite (`--max-new-queries` → exit 10):** validado pela verificação
+> offline da seção 2.7; com IPs já no cache nenhuma região atinge o limite, então o
+> ramo de "pular para a próxima região" não é exercitado no teste de 0 créditos.

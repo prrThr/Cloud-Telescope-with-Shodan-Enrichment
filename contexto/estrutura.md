@@ -51,6 +51,7 @@ Diretório raiz: `ibr-etl`
 │   ├── generate_capinfos.sh
 │   ├── import_pcaps_onto_securityonion.sh
 │   ├── process_regions.sh
+│   ├── shodan_rotation.sh
 │   └── testawsranges.py
 ├── README.md
 ├── src/
@@ -80,6 +81,11 @@ Observações:
   execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +
   artefatos `output*`). Cada execução é isolada; nada de execuções anteriores é
   removido ou alterado.
+- `datasets/rotacao_shodan_<origem>_<data_hora>/`: diretórios criados pelo
+  rotacionador `other/shodan_rotation.sh`. Contêm `regions/<região>/`
+  (`output.csv.gz`, `output.enriched.csv.gz`, `.done`, `shodan.log`),
+  `rotacao.log` e, ao final, `output.enriched.csv.gz` + `output.shodan.csv.gz`.
+  Reaproveite o diretório com `-o` para retomar uma coleta.
 - `GeoLite2-City.mmdb` (gratuita) existe apenas em `backups/`; o pipeline usa a
   licenciada `GeoIP2-City.mmdb` (`src/2_enrich_csv.py:7`).
 - `logs/shodan_cache.json` é criado na primeira execução da etapa 6 (cache Shodan).

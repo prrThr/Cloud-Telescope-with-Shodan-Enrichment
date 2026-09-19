@@ -28,6 +28,12 @@ Modos de uso:
   Interrupção graciosa de coleta longa (criação manual do arquivo marcador):
     touch PARAR   # encerra ao fim da linha corrente, com flush do cache e .gz íntegro
 
+  Limite de consultas novas (rotação entre regiões):
+    python3 6_shodan_enrich.py --max-new-queries 1000
+    # encerra após 1000 consultas NOVAS (cache hits não contam) e sai com código 10;
+    # código 0 quando a entrada termina sem atingir o limite. Usado pelo rotacionador
+    # other/shodan_rotation.sh para alternar entre agregados compartilhando o cache.
+
   [DEMO] Visualização detalhada da resposta da API para um IP:
     python3 6_shodan_enrich.py --demo 1.2.3.4
 
@@ -98,6 +104,7 @@ PROGRESS_EVERY  = 1000                      # linhas entre cada log de progresso
 RATE_LIMIT_WAIT = 60                        # espera fixa ao retentar em rate limit (RNF03)
 DEFAULT_SAVE_EVERY = 500                    # grava o cache em disco a cada N IPs novos (RF06)
 IPV4_RE         = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+EXIT_CAP_REACHED = 10                       # saída quando --max-new-queries é atingido
 
 # Nomes dos campos adicionados ao CSV (usados no modo demo e no cabeçalho)
 SHODAN_FIELD_NAMES = [
@@ -605,7 +612,8 @@ def process_pipeline(
     cache: ShodanCache,
     rate_limit: float,
     stop_file: str | None = None,
-):
+    max_new_queries: int | None = None,
+) -> str:
     """
     Lê CSV enriquecido do stdin (saída de 2_enrich_csv.py), adiciona os
     campos Shodan e escreve no stdout (RF01, RF02, RF06, RF07 / CSU02, CSU03).
@@ -624,6 +632,13 @@ def process_pipeline(
     loop encerra na fronteira entre linhas (após concluir a linha corrente),
     persiste o cache e sai com código 0 — permitindo interromper uma coleta
     longa de forma limpa (sem perder pendências de cache e com o .gz íntegro).
+
+    max_new_queries: quando definido, encerra graciosamente após N consultas
+    NOVAS à API (cache hits não contam), persistindo o cache. Permite alternar
+    a coleta entre regiões/agregados compartilhando o mesmo cache.
+
+    Retorna o motivo do término: "concluido" (entrada esgotada), "parado"
+    (stop_file) ou "limite" (max_new_queries atingido).
     """
     stats = {
         "lines_total":    0,
@@ -633,6 +648,7 @@ def process_pipeline(
         "no_data":        0,
     }
     parou = False
+    limite_atingido = False
 
     for rawline in sys.stdin:
         if stop_file and Path(stop_file).exists():
@@ -692,13 +708,27 @@ def process_pipeline(
                 f"sem dados: {stats['no_data']}"
             )
 
+        # Limite de consultas novas (rotação entre regiões) — encerra após
+        # gravar a linha que atingiu o limite, preservando a saída íntegra.
+        if max_new_queries is not None and stats["api_calls"] >= max_new_queries:
+            logger.info(
+                f"Limite de {max_new_queries} consultas novas atingido — "
+                f"encerrando graciosamente após {stats['lines_total']} linhas."
+            )
+            limite_atingido = True
+            break
+
     # Persiste as pendências restantes do cache (RF06)
     cache.flush()
 
     # Relatório final
     cs = cache.stats
     logger.info("─" * 50)
-    if parou:
+    if limite_atingido:
+        logger.info(
+            f"Encerrado por limite de consultas novas (--max-new-queries {max_new_queries})."
+        )
+    elif parou:
         logger.info("Encerrado por marcador de parada (--stop-file).")
     else:
         logger.info(f"Concluído.")
@@ -709,6 +739,12 @@ def process_pipeline(
     logger.info(f"  API calls:           {stats['api_calls']}")
     logger.info(f"  IPs sem dados:       {stats['no_data']}")
     logger.info("─" * 50)
+
+    if limite_atingido:
+        return "limite"
+    if parou:
+        return "parado"
+    return "concluido"
 
 
 # ---------------------------------------------------------------------------
@@ -774,6 +810,16 @@ def main():
              "graciosamente na fronteira entre linhas, persiste o cache (flush) e "
              "sai com código 0. Útil para interromper execuções longas de forma limpa.",
     )
+    parser.add_argument(
+        "--max-new-queries",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Encerra graciosamente após N consultas NOVAS à API (cache hits não "
+             "contam) e sai com código 10; sai com código 0 quando a entrada termina. "
+             "Usado pelo rotacionador other/shodan_rotation.sh para alternar entre "
+             "agregados compartilhando o mesmo cache.",
+    )
 
     args = parser.parse_args()
 
@@ -783,6 +829,8 @@ def main():
             "Chave da API não encontrada.\n"
             "Use --api-key ou exporte: export SHODAN_API_KEY='sua_chave'"
         )
+    if args.max_new_queries is not None and args.max_new_queries < 1:
+        parser.error("--max-new-queries deve ser um inteiro positivo")
 
     api = init_api(args.api_key)
 
@@ -796,12 +844,15 @@ def main():
         # Modo pipeline padrão
         cache = ShodanCache(args.cache_file, save_every=args.cache_save_every)
         atexit.register(cache.flush)
-        process_pipeline(
+        status = process_pipeline(
             api,
             cache,
             rate_limit=args.rate_limit,
             stop_file=args.stop_file,
+            max_new_queries=args.max_new_queries,
         )
+        if status == "limite":
+            sys.exit(EXIT_CAP_REACHED)
 
 
 if __name__ == "__main__":
