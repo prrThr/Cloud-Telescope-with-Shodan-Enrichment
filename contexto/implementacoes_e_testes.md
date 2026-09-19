@@ -6,6 +6,64 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## G. Sincronização da documentação com os datasets atuais (`e3_raw`/`e3_full`)
+
+### Objetivo
+
+A documentação canônica e os testes ainda referenciavam `datasets/e3` (e o default
+`datasets/e1`), diretórios que não existem mais. Os datasets reais são
+`datasets/e3_raw` (capturas brutas individuais, elegíveis à etapa 0) e
+`datasets/e3_full` (26 agregados por região AWS, não elegíveis à etapa 0). Além
+disso, o facilitador passou a exigir `-d/--dataset` (default `""`) e ganhou a opção
+`-p/--packet-limit`, ambos ainda não documentados.
+
+### Alterações realizadas
+
+- `AGENTS.md`: seção Datasets reescrita para `e3_raw`/`e3_full`; exemplos de execução
+  e nome do artefato (`output.shodan.csv.gz`).
+- `README.md`, `contexto/pipeline.md`, `contexto/estrutura.md`,
+  `contexto/instrucoes.md`: referências `datasets/e3` → `e3_raw`/`e3_full`.
+- `contexto/pipeline.md`: descrição do `full_etl.sh` atualizada (`-d` obrigatório,
+  `-p/--packet-limit`, custo de ~1 consulta ≈ 1 s por IP novo).
+- `tests/exemplos_de_testes.md`: comandos migrados para `e3_raw`/`e3_full`; correção
+  de `output.shodan.gz` → `output.shodan.csv.gz`; nova **seção 7** com E2E pequeno e
+  coleta longa em background (`tmux`/`nohup`) com parada via `--stop-file`.
+- `other/full_etl.sh`: apenas textos de `usage()`/AVISO (`e1`/`e3` →
+  `e3_raw`/`e3_full`, `-d` obrigatório) e escape das crases de `` `touch` `` no
+  heredoc do `usage()` (as crases não escapadas eram interpretadas como substituição
+  de comando, executando `touch` sem operando e imprimindo
+  `touch: missing file operand` no `--help`). **Nenhuma mudança de lógica.**
+- `Docker/Dockerfile`: diretórios comentados/criados como `e3_raw`/`e3_full`.
+- `src/0_select_representative_subset.py`: docstring atualizada para `e3_raw`.
+- `contexto/dataset_e3.md`: `output.shodan.gz` → `output.shodan.csv.gz`.
+
+### Comportamento esperado
+
+- Nenhuma referência operacional a `datasets/e3`/`datasets/e1` nos documentos vivos.
+- Documentação reflete `-d` obrigatório e a opção `-p` do `full_etl.sh`.
+- Nenhuma alteração de comportamento no código do pipeline.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `bash -n other/full_etl.sh` | sintaxe válida | OK |
+| `venv/bin/python -m py_compile src/0_select_representative_subset.py` | compila | OK |
+| `rg` por `datasets/e3`/`datasets/e1`/`output.shodan.gz` nos docs vivos | apenas menção histórica em `dataset_e3.md` | OK — só a nota de datasets removidos |
+| `other/full_etl.sh --help` | `-d` obrigatório e `-p` documentados, sem ruído em stderr | OK — exit 0, stderr vazio |
+| `other/full_etl.sh` sem `-d` | erro de preflight, exit 1 | OK — `[full_etl] ERRO: Diretório do dataset não encontrado:` |
+
+### Problemas ou limitações
+
+- `other/full_etl.sh` com `DATASET=""` (sem `-d`) falha no preflight com a mensagem
+  genérica `Diretório do dataset não encontrado:` — funcional, mas pouco explícita
+  para o caso "opção obrigatória ausente".
+- `src/1_generate_tshark_csv.sh` (legado, substituído pelo `.py`) não consta em
+  `contexto/estrutura.md` e ainda cita `datasets/e1`; fora do escopo desta
+  sincronização.
+
+---
+
 ## F. Parada graciosa da coleta Shodan + gravação atômica do cache
 
 ### Objetivo

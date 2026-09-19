@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-DATASET="datasets/e1"
+DATASET=""
 NUM_PCAPS=""
 PACKET_LIMIT=""
 SHODAN_QUERIES=""
@@ -27,16 +27,17 @@ Artefatos sempre gerados no diretório da execução:
   output.shodan.csv.gz         etapa 6 — enriquecimento Shodan
 
 Opções:
-  -d, --dataset DIR        Diretório de origem das capturas (padrão: datasets/e1).
+  -d, --dataset DIR        Diretório de origem das capturas (obrigatório, sem padrão;
+                           ex.: datasets/e3_raw ou datasets/e3_full).
                            Com nomenclatura bruta (<região><az>-<IP>-<data>-<hora>),
                            a seleção usa a etapa 0 (estratificada por região); sem
-                           nomenclatura elegível (ex.: agregados do datasets/e3), as
-                           capturas são vinculadas por ordem alfabética do nome.
+                           nomenclatura elegível (ex.: agregados do datasets/e3_full),
+                           as capturas são vinculadas por ordem alfabética do nome.
   -n, --num-pcaps N        Quantidade de capturas .pcap a utilizar
                            (padrão: todas as capturas da raiz do dataset).
                            A estratificação da etapa 0 garante ao menos 1 captura
                            por região presente no dataset (ex.: as 26 regiões do
-                           datasets/e1), de modo que N menor que o número de
+                           datasets/e3_raw), de modo que N menor que o número de
                            regiões resulta em 1 captura por região.
   -q, --shodan-queries N   Alimenta a etapa 6 apenas com as N primeiras linhas do CSV
                            enriquecido; cada IP de origem novo consome ~1 consulta
@@ -45,7 +46,7 @@ Opções:
                            a coleta Shodan encerra graciosamente (flush do cache e
                            output.shodan.csv.gz íntegro) e a execução segue. Padrão:
                            <diretório da execução>/stop_shodan. Para interromper uma
-                           coleta longa (ex.: madrugada), crie o arquivo com `touch`.
+                           coleta longa (ex.: madrugada), crie o arquivo com \`touch\`.
   -p, --packet-limit N     Limite de pacotes por captura na etapa 1 (repassado ao
                            tshark via -c). Reduz drasticamente o tempo de extração
                            (ex.: -p 50000 ≈ 5-10 s por arquivo). Padrão: sem limite.
@@ -63,12 +64,12 @@ ausente são puladas). Um segundo Ctrl+C encerra imediatamente. Para a etapa 6
 perda de pendências de cache e .gz truncado).
 
 Exemplos:
-  other/full_etl.sh
-  other/full_etl.sh -d datasets/e1 -n 48
-  other/full_etl.sh -d datasets/e1 -n 12 -q 60
-  other/full_etl.sh -d datasets/e3 --with-mysql
+  other/full_etl.sh -d datasets/e3_full
+  other/full_etl.sh -d datasets/e3_raw -n 48
+  other/full_etl.sh -d datasets/e3_raw -n 12 -q 60
+  other/full_etl.sh -d datasets/e3_full --with-mysql
   other/full_etl.sh --dataset datasets/e3_raw --num-pcaps 10 --shodan-queries 60
-  other/full_etl.sh -d datasets/e3 -n 1 -p 60 -q 60
+  other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 60
 EOF
 }
 
@@ -228,7 +229,7 @@ etapa2_enriquecimento() {
     FALLBACK=${FALLBACK:-0}
     if (( LINHAS > 0 && FALLBACK == LINHAS )); then
         log "AVISO: 100% dos destinos ficaram no fallback GeoIP/AWS (${LINHAS} linhas com ZZ/Unknown na coluna M-R)."
-        log "AVISO: causa típica — destinos privados nas capturas (ex.: datasets/e1); para geo/região de destino significativos, processe destinos públicos (ex.: datasets/e3). Ver contexto/implementacoes_e_testes.md, seção C."
+        log "AVISO: causa típica — destinos privados nas capturas (ex.: datasets/e3_raw); para geo/região de destino significativos, processe destinos públicos (ex.: datasets/e3_full). Ver contexto/implementacoes_e_testes.md, seção C."
     fi
 }
 

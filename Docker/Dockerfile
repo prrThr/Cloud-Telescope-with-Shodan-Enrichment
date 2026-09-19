@@ -77,12 +77,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
 #   /ibr-etl/src/           → pipeline
 #   /ibr-etl/tests/
 #   /ibr-etl/datasets/      → datasets processados (pcap.gz e csv)
-#   /ibr-etl/datasets/e1/   → pcap.gz raw
-#   /ibr-etl/datasets/e3/   → pcap.gz compactados
+#   /ibr-etl/datasets/e3_raw/   → pcap.gz brutos individuais (etapa 0)
+#   /ibr-etl/datasets/e3_full/  → pcap.gz agregados por região AWS
 #
 #   O GeoIP2-City.mmdb deve ficar na raiz /ibr-etl/
 
-RUN mkdir -p /ibr-etl/datasets/ /ibr-etl/datasets/e1/ /ibr-etl/datasets/e3/ /ibr-etl/logs/ /ibr-etl/src/ /ibr-etl/tests/ /ibr-etl/other/
+RUN mkdir -p /ibr-etl/datasets/ /ibr-etl/datasets/e3_raw/ /ibr-etl/datasets/e3_full/ /ibr-etl/logs/ /ibr-etl/src/ /ibr-etl/tests/ /ibr-etl/other/
 WORKDIR /ibr-etl
 
 CMD ["/bin/bash"]

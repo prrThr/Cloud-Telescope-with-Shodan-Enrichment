@@ -94,7 +94,7 @@ zcat datasets/e3_subset/output.csv.gz \
     | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz \
     | venv/bin/python src/6_shodan_enrich.py \
-    | gzip > datasets/e3_subset/output.shodan.gz
+    | gzip > datasets/e3_subset/output.shodan.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz \
     | venv/bin/python src/3_summarize_radiation.py \
     > datasets/e3_subset/output.tex

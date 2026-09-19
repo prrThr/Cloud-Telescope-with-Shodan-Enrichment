@@ -37,9 +37,9 @@ Se você quiser testar o pipeline com 100 pacotes antes de processar um lote gra
 
 Para evitar processar o dataset completo no desenvolvimento local, use o estágio de amostragem do pipeline. Ele seleciona arquivos por região e distribui os pontos no tempo de forma sistemática.
 
-A etapa 0 reconhece a nomenclatura padrão (`<região><az>-<IP>-<data>-<hora>`) e funciona com o `datasets/e3` atual (capturas brutas). Para testes rápidos, use `--max-files` pequeno. Detalhes: `contexto/dataset_e3.md`.
+A etapa 0 reconhece a nomenclatura padrão (`<região><az>-<IP>-<data>-<hora>`) e funciona com o `datasets/e3_raw` (capturas brutas). Para testes rápidos, use `--max-files` pequeno. Detalhes: `contexto/dataset_e3.md`.
 
-- `python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 48 --clean`
+- `python3 src/0_select_representative_subset.py datasets/e3_raw --output datasets/e3_subset --max-files 48 --clean`
 - `python3 src/1_generate_tshark_csv.py datasets/e3_subset`
 - `time zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz`
 

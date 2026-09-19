@@ -47,11 +47,18 @@ não contém regras próprias.
 
 ## Datasets
 
-O dataset está disponível em:
+O Dataset 3 está disponível em duas formas:
 
-- `datasets/e3` — Dataset 3: capturas brutas com nomenclatura padrão
+- `datasets/e3_raw` — capturas brutas individuais com nomenclatura padrão
   `<região><az>-<IP>-<YYYYMMDD>-<HHMM>.pcap.gz` (~21.300 capturas, ~42.600
-  arquivos incluindo `.pcap.txt`).
+  arquivos incluindo `.pcap.txt`). É elegível para a amostragem estratificada da
+  etapa 0 (as capturas seguem a nomenclatura bruta).
+- `datasets/e3_full` — capturas agregadas por região AWS (26 arquivos
+  `e3_<região>.pcap.gz`). Não segue a nomenclatura bruta, portanto a etapa 0 não se
+  aplica; o `full_etl.sh` vincula os arquivos diretamente. Preferível quando se
+  deseja destino público/GeoIP significativo.
+
+Detalhes: `contexto/dataset_e3.md`.
 
 O dataset possui grande volume de dados e não deve ser lido ou processado
 integralmente apenas para compreender sua estrutura.
@@ -137,7 +144,7 @@ consumidores paralelos (resumo, grafo, MySQL).
 | 3. Resumo | `src/3_summarize_radiation.py` | `output.enriched.csv.gz` → `output.tex` (agregações de radiação) |
 | 4. Grafo | `src/4_generate_graph.py` | CSV de IPs únicos → Cypher para Neo4j |
 | 5. MySQL | `src/5_import_mysql.py` | CSV enriquecido → banco MySQL |
-| 6. Shodan | `src/6_shodan_enrich.py` | `output.enriched.csv.gz` → `output.shodan.gz` (campos 18–27: org, ISP, ASN, OS, portas, CPEs, CVEs, tags, hostnames, last_seen) |
+| 6. Shodan | `src/6_shodan_enrich.py` | `output.enriched.csv.gz` → `output.shodan.csv.gz` (campos 18–27: org, ISP, ASN, OS, portas, CPEs, CVEs, tags, hostnames, last_seen) |
 
 As etapas 3–5 consomem o mesmo CSV enriquecido **em paralelo** (não sequencialmente).
 A etapa 6 adiciona campos nas posições 18–27 do CSV (após `awsregion`).
@@ -145,15 +152,15 @@ A etapa 6 adiciona campos nas posições 18–27 do CSV (após `awsregion`).
 ### Exemplos de execução
 
 ```sh
-python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 48 --clean
+python3 src/0_select_representative_subset.py datasets/e3_raw --output datasets/e3_subset --max-files 48 --clean
 python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
-zcat datasets/e3_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.gz
+zcat datasets/e3_subset/output.enriched.csv.gz | python src/6_shodan_enrich.py | gzip > datasets/e3_subset/output.shodan.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
 ```
 
 > A etapa 0 reconhece a nomenclatura padrão `<região><az>-<IP>-<data>-<hora>` e
-> funciona com o `datasets/e3` atual (capturas brutas). Para testes rápidos, use
+> funciona com o `datasets/e3_raw` (capturas brutas). Para testes rápidos, use
 > `--max-files` pequeno. Detalhes: `contexto/dataset_e3.md`.
 
 ## Contrato de pipeline

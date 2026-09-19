@@ -28,7 +28,8 @@ Diretório raiz: `ibr-etl`
 │   ├── pipeline.md            # etapas atuais do pipeline (vivo)
 │   └── TCC_2_ArthurPereira_PosBanca.md  # TCC do Arthur (referência conceitual)
 ├── datasets/
-│   └── e3/
+│   ├── e3_raw/                # capturas brutas individuais (nomenclatura padrão)
+│   └── e3_full/               # capturas agregadas por região AWS (26 arquivos)
 ├── Docker/
 │   ├── docker-compose.yml
 │   └── Dockerfile
@@ -70,8 +71,10 @@ Diretório raiz: `ibr-etl`
 
 Observações:
 
-- `datasets/e3`: dataset-alvo com ~21.300 capturas brutas `.pcap.gz` (≈42.600 arquivos
-  contando `.pcap.txt`). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
+- `datasets/e3_raw`: dataset-alvo com ~21.300 capturas brutas `.pcap.gz` (≈42.600
+  arquivos contando `.pcap.txt`), elegível para a etapa 0. `datasets/e3_full`: 26
+  capturas agregadas por região AWS (`e3_<região>.pcap.gz`), não elegível para a
+  etapa 0. **Não listar, ler ou escanear** o conteúdo de `datasets/` (ver `AGENTS.md`).
 - `src/7_analyze_results.py`: análise de resultados pós-Shodan (etapa 7; não faz parte do fluxo ETL — lê o CSV de 28 colunas e gera tabelas/gráficos).
 - `datasets/execucao_pipeline_<origem>_<data_hora>/`: diretórios criados a cada
   execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +

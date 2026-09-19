@@ -36,11 +36,12 @@ antes, conforme as regras do projeto.
 ### 1.1 Etapa 0 — Amostragem (seleção de subconjunto)
 
 A etapa 0 reconhece a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`) e
-funciona com o `datasets/e3` atual (capturas brutas com nomenclatura padrão).
+funciona com o `datasets/e3_raw` (capturas brutas com nomenclatura padrão). Não se
+aplica ao `datasets/e3_full` (agregado por região).
 
 ```sh
 rm -rf datasets/e3_subset
-python3 src/0_select_representative_subset.py datasets/e3 \
+python3 src/0_select_representative_subset.py datasets/e3_raw \
     --output datasets/e3_subset --max-files 12 --clean
 ```
 
@@ -117,7 +118,7 @@ zcat datasets/e3_subset/output.enriched.csv.gz \
 10 Shodan). Conferir com:
 
 ```sh
-zcat datasets/e3_subset/output.shodan.gz | head -1 | awk -F, '{print NF}'
+zcat datasets/e3_subset/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'
 ```
 
 ---
@@ -272,7 +273,7 @@ Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas
 
 ```sh
 rm -rf datasets/e3_subset
-python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 12 --clean
+python3 src/0_select_representative_subset.py datasets/e3_raw --output datasets/e3_subset --max-files 12 --clean
 python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
@@ -294,20 +295,31 @@ nunca são removidas ou alteradas. Pré-requisitos (tshark, dependências Python
 `SHODAN_API_KEY` no `.env`, fixtures de Neo4j/MySQL quando solicitados) são validados
 **antes** de qualquer processamento.
 
+> **`-d/--dataset` é obrigatório** (sem padrão). Use `datasets/e3_raw` (capturas
+> brutas individuais, elegíveis à etapa 0) ou `datasets/e3_full` (agregado por região,
+> vinculado por ordem alfabética).
+
 ```sh
-other/full_etl.sh --help                          # ajuda
-other/full_etl.sh                                 # tudo do datasets/e3 (padrão)
-other/full_etl.sh -d datasets/e3 -n 12            # etapa 0 com até 12 capturas
-other/full_etl.sh -d datasets/e3 -n 12 -q 60      # ... e Shodan limitado a 60 linhas (~60 consultas no pior caso)
+other/full_etl.sh --help                              # ajuda
+other/full_etl.sh -d datasets/e3_full                 # tudo do e3_full (26 capturas)
+other/full_etl.sh -d datasets/e3_raw -n 12            # etapa 0 com até 12 capturas
+other/full_etl.sh -d datasets/e3_raw -n 12 -q 60      # ... e Shodan limitado a 60 linhas (~60 consultas no pior caso)
+other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 60  # 1 captura, 60 pacotes, 60 linhas no Shodan
 ```
 
 > **Nota sobre `-n`:** a estratificação da etapa 0 garante ao menos 1 captura por
-> região presente no dataset (26 regiões no `datasets/e3`); `-n` menor que o número
-> de regiões resulta em 1 captura por região (o script registra a quantidade real
-> em "Capturas na execução").
+> região presente no dataset (26 regiões no `datasets/e3_raw`); `-n` menor que o
+> número de regiões resulta em 1 captura por região (o script registra a quantidade
+> real em "Capturas na execução"). Em `datasets/e3_full` a etapa 0 não se aplica: os
+> 26 agregados são vinculados por ordem alfabética.
 >
-> **Créditos Shodan:** sem `-q`, todos os IPs de origem novos consomem ~1 consulta
-> cada. Com `-q N`, apenas as N primeiras linhas do CSV enriquecido chegam à etapa 6.
+> **`-p/--packet-limit N`** limita pacotes por captura na etapa 1 (tshark `-c`),
+> acelerando bastante a extração em testes.
+>
+> **Créditos Shodan:** cada IP de origem **novo** consome ~1 consulta (~1 s de
+> rate-limit). Sem `-q`, todos os IPs novos do CSV enriquecido são consultados; com
+> `-q N`, apenas as N primeiras linhas chegam à etapa 6. IPs já no cache
+> (`logs/shodan_cache.json`) não consomem créditos.
 
 **Coleta longa (ex.: madrugada) com parada manual no dia seguinte:** a etapa 6
 respeita um marcador de parada (`-s/--stop-file`; padrão `<execução>/stop_shodan`).
@@ -315,10 +327,13 @@ Ao criar o arquivo, o módulo encerra a linha corrente, faz `flush` do cache e s
 com código 0 — a execução segue e o `output.shodan.csv.gz` fica íntegro:
 
 ```sh
-other/full_etl.sh -d datasets/e3 -n 300 &        # inicia a coleta
+other/full_etl.sh -d datasets/e3_full &          # inicia a coleta
 # na manhã seguinte, encerrar graciosamente (o caminho exato é logado pelo script):
 touch datasets/execucao_pipeline_<origem>_<data_hora>/stop_shodan
 ```
+
+> Para manter a coleta viva mesmo ao fechar o terminal, rode dentro de uma sessão
+> `tmux` (ver seção 7).
 
 ### Teste rápido sem tocar nos datasets reais
 
@@ -335,7 +350,7 @@ Verificações:
 
 - exit 0 e diretório `datasets/execucao_pipeline_ds_fake_*` criado;
 - artefatos presentes: `output.csv.gz`, `output.enriched.csv.gz`,
-  `output.tex`, `output.shodan.gz`;
+  `output.tex`, `output.shodan.csv.gz`;
 - `zcat <execução>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
 - `zcat <execução>/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'` → 28.
 
@@ -370,3 +385,77 @@ other/full_etl.sh -d /tmp/opencode/ds_mix    # NÃO deve exibir o AVISO
 
 Opção desconhecida, dataset inexistente, `-n`/`-q` não positivos, pré-requisitos
 ausentes → mensagem `[full_etl] ERRO:` e exit 1 **sem criar** diretório de execução.
+
+---
+
+## 7. E2E pequeno e coleta longa em background
+
+### 7.1 E2E pequeno (recomendado para validar uma alteração)
+
+Usa o `e3_full` (destinos públicos ⇒ GeoIP significativo) com **1 captura**, limite
+de 60 pacotes na extração e no máximo 10 consultas Shodan. Lembrete: cada IP de
+origem **novo** custa ~1 consulta (~1 s); IPs já em cache não custam crédito.
+
+```sh
+other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 10
+```
+
+Verificações (copie o caminho `datasets/execucao_pipeline_<origem>_<data_hora>` logado
+ao final da execução para `RUN`; **não liste `datasets/`** — ver `AGENTS.md`):
+
+```sh
+RUN=datasets/execucao_pipeline_e3_full_<data_hora>   # caminho logado pelo full_etl.sh
+zcat "$RUN/output.enriched.csv.gz" | head -1 | awk -F, '{print NF}'   # 18
+zcat "$RUN/output.shodan.csv.gz"   | head -1 | awk -F, '{print NF}'   # 28
+zcat "$RUN/output.shodan.csv.gz"   | wc -l                            # <= 10
+```
+
+Alternativa usando a amostragem estratificada do `e3_raw` (26 capturas, uma por
+região, e no máximo 5 consultas Shodan):
+
+```sh
+other/full_etl.sh -d datasets/e3_raw -n 12 -q 5
+```
+
+> `-q` deve ser inteiro positivo. Para um E2E **sem consumir créditos**, restrinja a
+> etapa 6 a IPs já presentes em `logs/shodan_cache.json` (cache hits) ou valide-a
+> isoladamente com o cache existente (seção 2.3). As etapas 0–3 não usam a API do
+> Shodan e podem ser testadas à vontade.
+
+### 7.2 Coleta longa em background com `tmux`
+
+O rate-limit do Shodan é de ~1 consulta/s. Uma coleta com alguns milhares de IPs
+novos leva de dezenas de minutos a horas — rode em uma sessão `tmux` separada para
+poder fechar o terminal e continuar trabalhando em outra etapa.
+
+```sh
+# 1. cria (ou reusa) uma sessão dedicada
+tmux new -s ibr-shodan
+
+# 2. dentro da sessão, inicia a coleta em um diretório novo.
+#    -d obrigatório; sem -q a etapa 6 consulta todos os IPs de origem novos.
+cd ~/Faculdade/TCC/ibr-etl
+other/full_etl.sh -d datasets/e3_full 2>&1 | tee -a logs/coleta_shodan_$(date +%Y%m%d).log
+
+# 3. destaca da sessão: Ctrl+b, depois d  (o processo continua rodando)
+```
+
+Acompanhar / retomar:
+
+```sh
+tmux ls                       # lista sessões
+tmux attach -t ibr-shodan     # reanexa
+tail -f logs/shodan_enrich.log   # progresso da etapa 6 (a cada 1000 linhas)
+```
+
+Encerrar a coleta graciosamente (sem perder cache nem truncar o `.gz`) — o caminho
+exato do marcador é logado por `[full_etl] Marcador de parada da etapa 6`:
+
+```sh
+touch datasets/execucao_pipeline_e3_full_<data_hora>/stop_shodan
+```
+
+> Alternativa sem `tmux` (mesmo efeito de desacoplar do terminal): `nohup other/full_etl.sh -d datasets/e3_full > logs/coleta_shodan.log 2>&1 &`.
+> Nesse caso, use `--stop-file` com caminho conhecido para encerrar depois, e
+> `tail -f logs/shodan_enrich.log` para acompanhar. Prefira `tmux` por permitir
+> reanexar e ver o progresso interativo.
