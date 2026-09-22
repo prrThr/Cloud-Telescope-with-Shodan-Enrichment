@@ -6,6 +6,58 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## I. Cobertura real do Shodan na etapa 7 (`comparacao_pipeline`)
+
+### Objetivo
+
+A comparação antiga (`pipeline original 18 col vs estendido 28 col`) era enganosa:
+como o CSV de 28 colunas emite uma linha para todo IP (com campos Shodan vazios para
+IPs não consultados), quase todos os IPs apareciam como "sem dados", e "ainda não
+consultados" ficava ~0. O objetivo foi medir a cobertura real a partir do cache
+Shodan, separando três categorias.
+
+### Alterações realizadas
+
+- `src/7_analyze_results.py`:
+  - `analisar_comparacao(df, caminho_original, caminho_cache, output_dir)`: usa o
+    cache (`logs/shodan_cache.json`, via novo argumento `--cache-file`) como fonte
+    de verdade. Categorias: **consultados com dados** (`found=true`), **consultados
+    sem dados** (`found=false`) e **não consultados** (ausentes do cache), sempre
+    restritos ao universo (`--original-csv`, ou o próprio CSV de entrada).
+  - Novo argumento `--cache-file` (padrão `logs/shodan_cache.json`).
+  - Nova função `ler_cache_shodan()`; `plot_comparacao()` e o CSV
+    `comparacao_pipeline.csv` agora têm três categorias e colunas
+    `categoria,ips_unicos,pct_original`.
+  - Removida a função `ips_com_metadados_shodan()` e a constante
+    `SHODAN_FIELD_COLS` (sem uso após a mudança).
+
+### Comportamento esperado
+
+- `comparacao_pipeline.csv` com três linhas (com dados / sem dados / não consultados)
+  e `pct_original` percentual do universo.
+- Gráfico `comparacao_pipeline.png` com as três barras.
+- Resumo em stderr "Cobertura do enriquecimento Shodan" com os três números e o
+  tamanho do universo.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `venv/bin/python -m py_compile src/7_analyze_results.py` | compila | OK |
+| E2E offline: cache sintético (3 `found=true`, 2 `found=false`), CSV 28-col com 5 IPs (campos Shodan vazios), `--original-csv` com 6 IPs | CSV com 3/2/1 e `pct_original` 50/33.33/16.67; prova que a fonte é o cache, não o CSV | OK — `Consultados com dados no Shodan,3,50.0` / `Consultados sem dados no Shodan,2,33.33` / `Não consultados,1,16.67` |
+
+Teste sem consumo de créditos. Diretórios em `/tmp/opencode` removidos ao final.
+
+### Problemas ou limitações
+
+- A comparação depende do cache estar preenchido com o campo `found` (registros
+  antigos gerados antes dessa convenção não têm `found`; são tratados como
+  `found=false`, ou seja, "sem dados").
+- `--cache-file` aponta por padrão para o cache global; execuções com cache
+  temporário devem passar `--cache-file` explicitamente.
+
+---
+
 ## H. Coleta Shodan rotativa entre agregados
 
 ### Objetivo

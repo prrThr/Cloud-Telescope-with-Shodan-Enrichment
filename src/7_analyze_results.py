@@ -6,8 +6,8 @@ Gera distribuições estatísticas a partir dos metadados Shodan:
   - Distribuição de dispositivos por OS detectado
   - Ranking de organizações e de ISPs com mais IPs de origem
   - Portas abertas mais comuns e CVEs associados a essas portas
-  - Comparação pipeline original (18 colunas) vs estendido (28 colunas):
-    quantos IPs de origem ganharam metadados técnicos do Shodan
+  - Cobertura do enriquecimento Shodan (a partir do cache): consultados com
+    dados, consultados sem dados e não consultados
   - Distribuição geográfica de origem (país) cruzada com o OS detectado
 
 Uso:
@@ -22,6 +22,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import argparse
 import gzip
+import json
 
 import pandas as pd
 import matplotlib
@@ -41,12 +42,6 @@ COL_NAMES = [
 ]
 
 SEM_REGISTRO = "Sem registro"
-
-SHODAN_FIELD_COLS = [
-    "shodan_org", "shodan_isp", "shodan_asn", "shodan_os",
-    "shodan_open_ports", "shodan_cpes", "shodan_cves",
-    "shodan_tags", "shodan_hostnames", "shodan_last_seen",
-]
 
 
 def read_csv_from_stdin():
@@ -221,29 +216,34 @@ def ler_ips_originais(caminho_csv):
     return ips
 
 
-def ips_com_metadados_shodan(df):
-    """Conjunto de IPs de origem com ao menos um campo Shodan preenchido."""
-    sub = df[SHODAN_FIELD_COLS].fillna("") != ""
-    tem_algum = sub.any(axis=1)
-    return set(df.loc[tem_algum, "ip_src"].unique())
+def ler_cache_shodan(caminho_cache):
+    """
+    Lê o cache Shodan (JSON por IP) e retorna o dict {ip: registro}.
+    Retorna {} quando o caminho é None, inexistente ou ilegível.
+    """
+    if not caminho_cache or not os.path.exists(caminho_cache):
+        return {}
+    try:
+        with open(caminho_cache, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def plot_comparacao(resumo, output_path):
-    """Gráfico de barras horizontais com o resumo da comparação 18 vs 28."""
-    fig, ax = plt.subplots(figsize=(10, 6))
-
+    """Gráfico de barras horizontais com o resumo da cobertura do Shodan."""
     categorias = list(resumo.keys())
     valores = list(resumo.values())
     cores = [
-        "#3498db",      # total original
-        "#2ecc71",      # ganharam metadados
-        "#95a5a6",      # sem dados Shodan
-        "#f39c12",      # ainda não consultados
+        "#2ecc71",      # consultados com dados
+        "#95a5a6",      # consultados sem dados
+        "#f39c12",      # não consultados
     ]
 
+    fig, ax = plt.subplots(figsize=(10, 6))
     bars = ax.barh(categorias[::-1], valores[::-1], color=cores[::-1])
     ax.set_xlabel("Número de IPs únicos de origem")
-    ax.set_title("Comparação: Pipeline Original (18 colunas) vs Estendido (28 colunas)")
+    ax.set_title("Cobertura do enriquecimento Shodan")
 
     for bar, val in zip(bars, valores[::-1]):
         ax.text(bar.get_width() + max(valores) * 0.01,
@@ -257,58 +257,46 @@ def plot_comparacao(resumo, output_path):
     print(f"Gráfico salvo: {output_path}", file=sys.stderr)
 
 
-def analisar_comparacao(df, caminho_original, output_dir):
+def analisar_comparacao(df, caminho_original, caminho_cache, output_dir):
     """
-    Compara o pipeline original (18 colunas) com o estendido (28 colunas):
-    quantos IPs únicos de origem ganharam metadados técnicos do Shodan.
+    Mede a cobertura do enriquecimento Shodan usando o cache como fonte de
+    verdade, separando os IPs únicos de origem em três categorias:
+      - Consultados com dados no Shodan   (presentes no cache com found=True)
+      - Consultados sem dados no Shodan   (presentes no cache com found=False)
+      - Não consultados                   (ausentes do cache)
     """
-    ips_processados = set(df["ip_src"].unique())
-
     if caminho_original:
         ips_originais = ler_ips_originais(caminho_original)
     else:
-        ips_originais = ips_processados
+        ips_originais = set(df["ip_src"].unique())
 
-    ganharam = ips_com_metadados_shodan(df)
-    sem_dados = ips_processados - ganharam
-    nao_consultados = ips_originais - ips_processados
+    cache = ler_cache_shodan(caminho_cache)
+    cache_ips = set(cache.keys()) & ips_originais
+
+    com_dados = {ip for ip in cache_ips if cache[ip].get("found")}
+    sem_dados = cache_ips - com_dados
+    nao_consultados = ips_originais - cache_ips
 
     total_original = len(ips_originais)
-    total_processados = len(ips_processados)
 
-    def pct(n, base):
-        return round(n / base * 100, 2) if base else None
+    def pct(n):
+        return round(n / total_original * 100, 2) if total_original else None
 
     resumo_df = pd.DataFrame([
         {
-            "categoria": "Pipeline original (18 col)",
-            "ips_unicos": total_original,
-            "pct_original": 100.0,
-            "pct_processados": None,
+            "categoria": "Consultados com dados no Shodan",
+            "ips_unicos": len(com_dados),
+            "pct_original": pct(len(com_dados)),
         },
         {
-            "categoria": "IPs processados pela etapa 6 (28 col)",
-            "ips_unicos": total_processados,
-            "pct_original": pct(total_processados, total_original),
-            "pct_processados": 100.0,
-        },
-        {
-            "categoria": "Ganharam metadados técnicos Shodan",
-            "ips_unicos": len(ganharam),
-            "pct_original": pct(len(ganharam), total_original),
-            "pct_processados": pct(len(ganharam), total_processados),
-        },
-        {
-            "categoria": "Sem dados no Shodan",
+            "categoria": "Consultados sem dados no Shodan",
             "ips_unicos": len(sem_dados),
-            "pct_original": pct(len(sem_dados), total_original),
-            "pct_processados": pct(len(sem_dados), total_processados),
+            "pct_original": pct(len(sem_dados)),
         },
         {
-            "categoria": "Ainda não consultados (sem Shodan)",
+            "categoria": "Não consultados",
             "ips_unicos": len(nao_consultados),
-            "pct_original": pct(len(nao_consultados), total_original),
-            "pct_processados": None,
+            "pct_original": pct(len(nao_consultados)),
         },
     ])
 
@@ -317,24 +305,21 @@ def analisar_comparacao(df, caminho_original, output_dir):
     print(f"Tabela salva: {csv_path}", file=sys.stderr)
 
     resumo_plot = {
-        "Pipeline original (18 col)": total_original,
-        "Ganharam metadados técnicos Shodan": len(ganharam),
-        "Sem dados no Shodan": len(sem_dados),
-        "Ainda não consultados (sem Shodan)": len(nao_consultados),
+        "Consultados com dados no Shodan": len(com_dados),
+        "Consultados sem dados no Shodan": len(sem_dados),
+        "Não consultados": len(nao_consultados),
     }
     png_path = os.path.join(output_dir, "comparacao_pipeline.png")
     plot_comparacao(resumo_plot, png_path)
 
-    print("\n--- Comparação 18 vs 28 colunas ---", file=sys.stderr)
-    print(f"  IPs únicos no pipeline original (18 col): {total_original}",
+    print("\n--- Cobertura do enriquecimento Shodan ---", file=sys.stderr)
+    print(f"  IPs únicos de origem (universo):      {total_original}",
           file=sys.stderr)
-    print(f"  IPs processados pela etapa 6 (28 col):    {total_processados}",
+    print(f"  Consultados com dados no Shodan:      {len(com_dados)}",
           file=sys.stderr)
-    print(f"  IPs que ganharam metadados Shodan:         {len(ganharam)}",
+    print(f"  Consultados sem dados no Shodan:      {len(sem_dados)}",
           file=sys.stderr)
-    print(f"  IPs sem dados no Shodan:                   {len(sem_dados)}",
-          file=sys.stderr)
-    print(f"  IPs ainda não consultados:                 {len(nao_consultados)}",
+    print(f"  Não consultados:                      {len(nao_consultados)}",
           file=sys.stderr)
 
 
@@ -384,9 +369,18 @@ def main():
         default=None,
         metavar="ARQUIVO",
         help=(
-            "CSV do pipeline original (18 colunas, saída da etapa 2), usado na "
-            "comparação 18 vs 28. Se omitido, a base considerada é a dos IPs "
-            "presentes no próprio CSV de entrada."
+            "CSV do pipeline original (18 colunas, saída da etapa 2), usado como "
+            "universo de IPs de origem na comparação de cobertura. Se omitido, a "
+            "base considerada é a dos IPs presentes no próprio CSV de entrada."
+        ),
+    )
+    parser.add_argument(
+        "--cache-file",
+        default=os.path.join(PROJECT_ROOT, "logs", "shodan_cache.json"),
+        metavar="ARQUIVO",
+        help=(
+            "Cache Shodan (JSON por IP) usado para medir a cobertura real do "
+            "enriquecimento (padrão: logs/shodan_cache.json)."
         ),
     )
     args = parser.parse_args()
@@ -455,7 +449,7 @@ def main():
                     file=sys.stderr,
                 )
 
-    analisar_comparacao(df, args.original_csv, output_dir)
+    analisar_comparacao(df, args.original_csv, args.cache_file, output_dir)
     analisar_geo_os(df, output_dir)
 
 

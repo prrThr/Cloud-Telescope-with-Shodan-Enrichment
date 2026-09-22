@@ -262,14 +262,15 @@ testes rápidos do pipeline priorize as etapas 0–3 e 6.
 
 Lê o CSV de 28 colunas (enriquecido + Shodan) e gera distribuições estatísticas
 contando IPs únicos de origem: distribuição por OS, ranking de organizações,
-ranking de ISPs, portas abertas mais comuns com CVEs associados, comparação
-pipeline original (18 col) vs estendido (28 col) e distribuição geográfica de
-origem cruzada com OS.
+ranking de ISPs, portas abertas mais comuns com CVEs associados, cobertura do
+enriquecimento Shodan (a partir do cache) e distribuição geográfica de origem
+cruzada com OS.
 
 ```sh
 zcat datasets/e3_subset/output.shodan.csv.gz \
     | venv/bin/python src/7_analyze_results.py \
         --original-csv datasets/e3_subset/output.enriched.csv.gz \
+        --cache-file logs/shodan_cache.json \
         --output-dir datasets/e3_subset
 ```
 
@@ -278,12 +279,15 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 > completo; o terminal exibe apenas amostra), `comparacao_pipeline` e `geo_os_cross`.
 > Colunas: `shodan_os`/`shodan_org`/`shodan_isp`/`porta` + `ips_unicos,percentual`;
 > `port_cves`: `porta,cve,ips_afetados`; `comparacao_pipeline`:
-> `categoria,ips_unicos,pct_original,pct_processados`;
+> `categoria,ips_unicos,pct_original`;
 > `geo_os_cross`: `src_country,shodan_os,ips_unicos`.
-> A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como universo de IPs;
-> sem ele, a base é o próprio CSV de entrada. A análise geográfica gera apenas a
-> tabela `geo_os_cross.csv` (país de origem × OS, contagem de IPs únicos); a
-> plotagem em mapa (`geo_os_map.png`) foi descontinuada por ora.
+> A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como **universo** de
+> IPs (sem ele, a base é o próprio CSV de entrada) e o `--cache-file`
+> (`logs/shodan_cache.json`) como fonte de verdade, separando os IPs em três
+> categorias: *consultados com dados* (`found=true`), *consultados sem dados*
+> (`found=false`) e *não consultados* (ausentes do cache). A análise geográfica gera
+> apenas a tabela `geo_os_cross.csv` (país de origem × OS, contagem de IPs únicos);
+> a plotagem em mapa (`geo_os_map.png`) foi descontinuada por ora.
 
 **Verificações:**
 - exit 0;
@@ -292,8 +296,9 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 - PNGs correspondentes presentes e não vazios;
 - `port_cves.csv` presente (com cabeçalho mesmo sem associações);
 - `comparacao_pipeline.csv` com colunas
-  `categoria,ips_unicos,pct_original,pct_processados`; quando executado sobre o
-  subset truncado (300 linhas), deve indicar `Ainda não consultados` > 0;
+  `categoria,ips_unicos,pct_original` e exatamente as três linhas
+  `Consultados com dados no Shodan`, `Consultados sem dados no Shodan` e
+  `Não consultados`;
 - `geo_os_cross.csv` presente (colunas `src_country,shodan_os,ips_unicos`).
 
 
