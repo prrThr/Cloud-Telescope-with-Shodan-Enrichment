@@ -76,17 +76,16 @@ zcat datasets/e3_subset/output.csv.gz \
 ```
 
 > Adiciona GeoIP de origem/destino + região AWS (18 colunas por linha). Gera logs
-> auxiliares em `logs/` (`cacheinfo.txt`, `anomalous_entries.csv`,
-> `trimmed_entries.csv`).
+> auxiliares em `logs/` (`cacheinfo.txt`, `anomalous_entries.csv`).
 >
 > **Comportamentos esperados:**
 > - IP fora da base GeoIP (ex.: destino privado `172.31.x.x`) recebe fallback
 >   `ZZ`/`ZZ Country`/região `Unknown` — não gera erro.
-> - **Reconciliação de linhas:** `entrada = enriquecidas + anomalous_entries +
->   trimmed_entries`. As anômalas são pacotes multi-camada IP (ICMP de erro que
+> - **Reconciliação de linhas:** `entrada = enriquecidas + anomalous_entries`.
+>   As anômalas são pacotes multi-camada IP (ICMP de erro que
 >   embute o cabeçalho original / túneis IP-in-IP), nos quais `ip.src`/`ip.dst`
 >   aparecem duplicados (`\,` no dump do tshark) e falham no "DIRTY IP CHECK"
->   (2_enrich_csv.py:41). Esse descarte é **intencional** (decisão de projeto);
+>   (ver `src/2_enrich_csv.py`). Esse descarte é **intencional** (decisão de projeto);
 >   não "corrigir".
 >
 > Verificação rápida:
@@ -101,7 +100,10 @@ zcat datasets/e3_subset/output.enriched.csv.gz \
     | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
 ```
 
-> Agregações de radiação; saída em texto/LaTeX (não gzip).
+> Agregações de radiação; saída em texto/LaTeX (não gzip). O dump auxiliar
+> (`logs/summarize_radiation_dict_dump.txt`) é **reescrito a cada execução** (não
+> acumula entre execuções) e o stdout contém apenas LaTeX — nenhum dicionário ou
+> linha de depuração.
 
 ### 1.5 Etapa 6 — Enriquecimento Shodan
 
@@ -249,7 +251,9 @@ PY
 As etapas 4 e 5 consomem o mesmo CSV enriquecido **em paralelo** ao resumo.
 
 - **Etapa 4 (grafo Neo4j):** lê `enriched_unique_source_IPs.csv` /
-  `enriched_unique_destination_IPs.csv` gerados pela etapa 2 e emite Cypher no stdout.
+  `enriched_unique_destination_IPs.csv` **da raiz do projeto** (`PROJECT_ROOT`,
+  independente do CWD) e o CSV enriquecido de 18 colunas do stdin, e emite Cypher no
+  stdout.
 - **Etapa 5 (MySQL):** importa o CSV enriquecido; requer servidor MySQL e credenciais
   configuradas no script (`host`, `user`, `password`).
 

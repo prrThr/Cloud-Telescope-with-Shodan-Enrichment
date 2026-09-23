@@ -6,6 +6,86 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## K. Correções nas etapas 1, 2, 3 e 4 (`src/`)
+
+### Objetivo
+
+Corrigir defeitos identificados na análise do pipeline, sem alterar os contratos
+stdin/stdout nem o formato dos CSVs (7/18/28 colunas):
+
+- **Etapa 1** (`1_generate_tshark_csv.py`): o flag `--max-files` colidia
+  conceitualmente com o `--max-files` (estratificado) da etapa 0; e a constante
+  `PROJECT_ROOT` era calculada mas nunca usada.
+- **Etapa 2** (`2_enrich_csv.py`): `logs/trimmed_entries.csv` era aberto a cada
+  execução e nunca escrito (arquivo vazio enganoso, feature nunca implementada).
+- **Etapa 3** (`3_summarize_radiation.py`): um `print` do dicionário
+  `merged_source_country_transport_layer` e os `print` de `Sub-total`/`Total` dentro
+  de `dumpdict` poluíam o `output.tex` (misturados às tabelas LaTeX); o dump era
+  aberto em modo append, acumulando entre execuções.
+- **Etapa 4** (`4_generate_graph.py`): os `enriched_unique_*_IPs.csv` eram abertos
+  por caminho relativo (dependente do CWD) e o mapeamento de colunas do CSV
+  enriquecido no stdin estava deslocado a partir do índice 4 (tratava
+  `tcp.flags.str` como `udp.dstport`), classificando mal o protocolo.
+
+### Alterações realizadas
+
+- `src/1_generate_tshark_csv.py`: removido `PROJECT_ROOT` (não usado); flag
+  `--max-files` renomeado para `--max-pcap-files` (variável `max_pcap_files`); exemplo
+  do help atualizado (`e1_subset` → `e3_subset`).
+- `src/2_enrich_csv.py`: removidos a abertura e o fechamento de `trimmed_entries`.
+- `src/3_summarize_radiation.py`: removido o `print(merged_source_country_transport_layer)`;
+  `dumpdict` agora grava `Sub-total`/`Total` no arquivo (`f.write`, antes `print` no
+  stdout) e o dump é aberto uma vez em modo `w` (idempotente), com `dump_file.close()`
+  ao final.
+- `src/4_generate_graph.py`: adicionado `PROJECT_ROOT` e os dois arquivos de IPs
+  únicos passam a ser abertos via `os.path.join(PROJECT_ROOT, ...)`; corrigidos os
+  índices das colunas do stdin para o CSV de 18 colunas (`udpdstport=line[5]`,
+  `icmptype=line[6]`, ..., `aws_region=line[17]`).
+- Documentação: `contexto/pipeline.md` (etapa 1 `--max-pcap-files`; etapa 2 sem
+  `trimmed_entries`; etapa 4 com entradas da raiz), `contexto/estrutura.md` (remove
+  `logs/trimmed_entries.csv`) e `tests/exemplos_de_testes.md` (reconciliação
+  `entrada = enriquecidas + anomalous_entries`; nota sobre o dump da etapa 3; etapa 4
+  com caminhos do `PROJECT_ROOT`).
+
+### Comportamento esperado
+
+- Etapa 1: `--max-pcap-files N` limita arquivos sem estratificação; `--max-files`
+  passa a ser exclusivo da etapa 0.
+- Etapa 2: `logs/trimmed_entries.csv` não é mais criado.
+- Etapa 3: `output.tex` contém apenas LaTeX; `logs/summarize_radiation_dict_dump.txt`
+  tem tamanho estável entre execuções.
+- Etapa 4: roda de qualquer CWD e classifica corretamente TCP/UDP/ICMP.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `py_compile` dos 4 módulos | compilam | OK |
+| Etapa 1 `--help` | exibe `--max-pcap-files`, sem `--max-files` | OK |
+| Etapa 1 `--max-pcap-files 1` (2 pcaps sintéticos) | processa 1 arquivo, `output.csv.gz` com 1 linha | OK |
+| Etapa 1 `--max-files 1` | rejeitado (unrecognized arguments, exit 2) | OK |
+| Etapa 2 sobre CSV bruto sintético (2 linhas) | exit 0; 18 colunas; `logs/trimmed_entries.csv` ausente | OK |
+| Etapa 3 vs versão anterior (3 linhas sintéticas) | sem dict (`{`) e sem `Sub-total`/`Total` fora do `\\` | OK — OLD: 1 dict + 40 linhas vazadas (+40 em branco) = 81 linhas extras; NEW: 0 |
+| Etapa 3 idempotência do dump | mesmo nº de linhas nas 2 execuções | OK — 111 e 111 |
+| Etapa 4 vs versão anterior (18 col: TCP/UDP/ICMP) | NEW: tcp/80, udp/53, icmp/8; OLD errava udp→icmp e icmp→unknown | OK |
+| Etapa 4 a partir de `/tmp/opencode` | encontra fixtures na raiz do projeto | OK |
+
+Testes sem gasto de créditos. Fixtures temporárias (`enriched_unique_*_IPs.csv`) e
+arquivos em `/tmp/opencode` removidos ao final.
+
+### Problemas ou limitações
+
+- A etapa 4 segue dependendo de `enriched_unique_source_IPs.csv` /
+  `enriched_unique_destination_IPs.csv`, que a etapa 2 ainda **não gera** (bloco
+  comentado); o `full_etl.sh --with-neo4j` valida a presença dessas fixtures antes de
+  rodar. Sem elas, a etapa 4 falha ao abrir os arquivos (comportamento pré-existente).
+- O `merged_source_country_transport_layer` (usado apenas por visualizações
+  comentadas) continua sendo calculado, porém sem ser impresso.
+- `logs/trimmed_entries.csv` pode existir como resíduo de execuções anteriores
+  (arquivo ignorado pelo git); não é mais recriado.
+
+---
+
 ## J. `full_etl.sh` como comando canônico "execute pipeline" (etapas 0→7)
 
 ### Objetivo

@@ -8,8 +8,6 @@ import sys
 import shutil
 import time
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -17,10 +15,10 @@ def parse_args():
     )
     parser.add_argument(
         "dataset_dir",
-        help="Diretório contendo arquivos .pcap.gz (ex: datasets/e1_subset)",
+        help="Diretório contendo arquivos .pcap.gz (ex: datasets/e3_subset)",
     )
     parser.add_argument(
-        "--max-files",
+        "--max-pcap-files",
         type=int,
         default=None,
         help="Número máximo de arquivos .pcap.gz a processar (padrão: todos)",
@@ -47,8 +45,8 @@ def main():
 
     pcap_files = sorted(glob.glob(os.path.join(dataset_dir, "*.pcap.gz")))
 
-    if args.max_files is not None:
-        pcap_files = pcap_files[: args.max_files]
+    if args.max_pcap_files is not None:
+        pcap_files = pcap_files[: args.max_pcap_files]
 
     if not pcap_files:
         print("Nenhum arquivo .pcap.gz encontrado.", file=sys.stderr)

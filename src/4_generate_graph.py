@@ -1,7 +1,10 @@
+import os
 import sys
 
-ipsrcfile=open("enriched_unique_source_IPs.csv","r")
-ipdstfile=open("enriched_unique_destination_IPs.csv","r")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+ipsrcfile=open(os.path.join(PROJECT_ROOT, "enriched_unique_source_IPs.csv"),"r")
+ipdstfile=open(os.path.join(PROJECT_ROOT, "enriched_unique_destination_IPs.csv"),"r")
 
 commit_every=100
 
@@ -71,19 +74,19 @@ for line in sys.stdin:
     ipsrc=line[1]
     ipdst=line[2]
     tcpdstport=line[3]
-    udpdstport=line[4]
-    icmptype=line[5]
-    source_country_iso_code=line[6]
-    source_country_name=line[7]
-    source_city_name=line[8]
-    source_latitude=line[9]
-    source_longitude=line[10]
-    aws_country_code=line[11]
-    aws_country_name=line[12]
-    aws_city_name=line[13]
-    aws_latitude=line[14]
-    aws_longitude=line[15]
-    aws_region=line[16]    
+    udpdstport=line[5]
+    icmptype=line[6]
+    source_country_iso_code=line[7]
+    source_country_name=line[8]
+    source_city_name=line[9]
+    source_latitude=line[10]
+    source_longitude=line[11]
+    aws_country_code=line[12]
+    aws_country_name=line[13]
+    aws_city_name=line[14]
+    aws_latitude=line[15]
+    aws_longitude=line[16]
+    aws_region=line[17]
     if tcpdstport:
         protocol="tcp"
         dstport=tcpdstport

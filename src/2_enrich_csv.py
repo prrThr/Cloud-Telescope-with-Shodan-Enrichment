@@ -29,7 +29,6 @@ cachedstmiss = 0
 #cacheglobalcounter = 0
 cacheinfo = open(os.path.join(PROJECT_ROOT, 'logs', 'cacheinfo.txt'), "w")
 anomalous_entries = open(os.path.join(PROJECT_ROOT, 'logs', 'anomalous_entries.csv'), "w")
-trimmed_entries = open(os.path.join(PROJECT_ROOT, 'logs', 'trimmed_entries.csv'), "w")
 
 FILENAME_RE = re.compile(
     r"^(?P<region>.+?)[-_](?P<ip>(?:\d{1,3}\.){3}\d{1,3})[-_](?P<date>\d{4}[-−]?\d{2}[-−]?\d{2}|\d{8})[-_](?P<time>\d{2}[-:]?\d{2}(?:[-:]?\d{2})?)$"
@@ -240,7 +239,6 @@ for rawline in lines_buf:
 
 solver.close()
 anomalous_entries.close()
-trimmed_entries.close()
 
 # for ip in unique_ipsrc_enriched_output:
 #     ipsrcfile.write(ip)

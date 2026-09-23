@@ -40,8 +40,7 @@ Diretório raiz: `ibr-etl`
 │   ├── retorno.json
 │   ├── shodan_cache.json      # cache Shodan por IP (criado na 1ª execução da etapa 6)
 │   ├── shodan_enrich.log
-│   ├── summarize_radiation_dict_dump.txt
-│   └── trimmed_entries.csv
+│   └── summarize_radiation_dict_dump.txt
 ├── opencode.json              # carrega .opencode/rules.md como instruções
 ├── other/
 │   ├── aggregate_pcaps.sh
