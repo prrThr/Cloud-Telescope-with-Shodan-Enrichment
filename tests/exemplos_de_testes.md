@@ -325,12 +325,14 @@ zcat datasets/e3_subset/output.shodan.csv.gz | venv/bin/python src/7_analyze_res
 
 ## 6. Facilitador `other/full_etl.sh`
 
-Executa o pipeline por inteiro (etapas 1→2→3→6; etapa 0 quando `-n`; etapas 4 e 5
+Executa o pipeline por inteiro (etapas 0→7; etapa 0 quando `-n`; etapas 4 e 5
 opcionais) criando um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`
 por execução. O dataset de origem só é lido (links simbólicos); execuções anteriores
 nunca são removidas ou alteradas. Pré-requisitos (tshark, dependências Python,
 `SHODAN_API_KEY` no `.env`, fixtures de Neo4j/MySQL quando solicitados) são validados
-**antes** de qualquer processamento.
+**antes** de qualquer processamento. A etapa 7 (análise) roda sempre que
+`pandas`/`matplotlib` estiverem disponíveis no interpretador usado; caso contrário,
+emite aviso e é pulada.
 
 > **`-d/--dataset` é obrigatório** (sem padrão). Use `datasets/e3_raw` (capturas
 > brutas individuais, elegíveis à etapa 0) ou `datasets/e3_full` (agregado por região,
@@ -340,8 +342,8 @@ nunca são removidas ou alteradas. Pré-requisitos (tshark, dependências Python
 other/full_etl.sh --help                              # ajuda
 other/full_etl.sh -d datasets/e3_full                 # tudo do e3_full (26 capturas)
 other/full_etl.sh -d datasets/e3_raw -n 12            # etapa 0 com até 12 capturas
-other/full_etl.sh -d datasets/e3_raw -n 12 -q 60      # ... e Shodan limitado a 60 linhas (~60 consultas no pior caso)
-other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 60  # 1 captura, 60 pacotes, 60 linhas no Shodan
+other/full_etl.sh -d datasets/e3_raw -n 12 -q 60      # ... e Shodan limitado a 60 consultas novas
+other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 60  # 1 captura, 60 pacotes, até 60 consultas novas no Shodan
 ```
 
 > **Nota sobre `-n`:** a estratificação da etapa 0 garante ao menos 1 captura por
@@ -355,7 +357,8 @@ other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 60  # 1 captura, 60 pacotes,
 >
 > **Créditos Shodan:** cada IP de origem **novo** consome ~1 consulta (~1 s de
 > rate-limit). Sem `-q`, todos os IPs novos do CSV enriquecido são consultados; com
-> `-q N`, apenas as N primeiras linhas chegam à etapa 6. IPs já no cache
+> `-q N`, a etapa 6 encerra graciosamente após **até N consultas novas** (cache hits
+> e IPs repetidos não contam) e a execução segue para a etapa 7. IPs já no cache
 > (`logs/shodan_cache.json`) não consomem créditos.
 
 **Coleta longa (ex.: madrugada) com parada manual no dia seguinte:** a etapa 6
@@ -444,8 +447,12 @@ ao final da execução para `RUN`; **não liste `datasets/`** — ver `AGENTS.md
 RUN=datasets/execucao_pipeline_e3_full_<data_hora>   # caminho logado pelo full_etl.sh
 zcat "$RUN/output.enriched.csv.gz" | head -1 | awk -F, '{print NF}'   # 18
 zcat "$RUN/output.shodan.csv.gz"   | head -1 | awk -F, '{print NF}'   # 28
-zcat "$RUN/output.shodan.csv.gz"   | wc -l                            # <= 10
+grep 'API calls' logs/shodan_enrich.log | tail -1                       # <= 10 (limite de consultas novas)
 ```
+
+> Com `-q 10`, a etapa 6 encerra após **até 10 consultas novas**; o número de linhas
+> de `output.shodan.csv.gz` pode ser maior que 10 (IPs repetidos e cache hits também
+> geram linha). A métrica confiável de custo é `API calls` no log, não `wc -l`.
 
 Alternativa usando a amostragem estratificada do `e3_raw` (26 capturas, uma por
 região, e no máximo 5 consultas Shodan):

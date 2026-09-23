@@ -9,22 +9,31 @@ NUM_PCAPS=""
 PACKET_LIMIT=""
 SHODAN_QUERIES=""
 STOP_FILE=""
+CACHE_FILE=""
+RATE_LIMIT=""
+CACHE_SAVE_EVERY=""
+REGION=""
 WITH_NEO4J=0
 WITH_MYSQL=0
+HAS_ANALYSIS=0
 
 usage() {
 cat <<EOF
 Uso: other/full_etl.sh [opções]
 
-Executa o pipeline principal por inteiro, criando um novo diretório de execução
-em datasets/execucao_pipeline_<origem>_<data_hora>. O dataset de origem é apenas
-lido (via links simbólicos) e execuções anteriores nunca são removidas ou alteradas.
+Executa o pipeline principal por inteiro (etapas 0→7), criando um novo diretório
+de execução em datasets/execucao_pipeline_<origem>_<data_hora>. O dataset de origem
+é apenas lido (via links simbólicos) e execuções anteriores nunca são removidas ou
+alteradas.
 
 Artefatos sempre gerados no diretório da execução:
   output.csv.gz            etapa 1 — extração tshark
   output.enriched.csv.gz   etapa 2 — enriquecimento GeoIP + AWS
   output.tex               etapa 3 — resumo LaTeX
-  output.shodan.csv.gz         etapa 6 — enriquecimento Shodan
+  output.shodan.csv.gz     etapa 6 — enriquecimento Shodan
+  *.csv / *.png            etapa 7 — análise de resultados (os_distribution,
+                           org_ranking, isp_ranking, top_ports, port_cves,
+                           comparacao_pipeline, geo_os_cross)
 
 Opções:
   -d, --dataset DIR        Diretório de origem das capturas (obrigatório, sem padrão;
@@ -39,14 +48,23 @@ Opções:
                            por região presente no dataset (ex.: as 26 regiões do
                            datasets/e3_raw), de modo que N menor que o número de
                            regiões resulta em 1 captura por região.
-  -q, --shodan-queries N   Alimenta a etapa 6 apenas com as N primeiras linhas do CSV
-                           enriquecido; cada IP de origem novo consome ~1 consulta
-                           Shodan (~1 s). Padrão: processa todas as linhas.
+  -q, --shodan-queries N   Limita a etapa 6 a até N consultas NOVAS à API Shodan
+                           (cache hits não contam). A etapa 6 encerra graciosamente
+                           ao atingir N consultas novas e a execução segue para a
+                           etapa 7. Padrão: processa todas as linhas.
   -s, --stop-file ARQ      Marcador de parada da etapa 6. Quando o arquivo ARQ existir,
                            a coleta Shodan encerra graciosamente (flush do cache e
                            output.shodan.csv.gz íntegro) e a execução segue. Padrão:
                            <diretório da execução>/stop_shodan. Para interromper uma
                            coleta longa (ex.: madrugada), crie o arquivo com \`touch\`.
+  -c, --cache-file ARQ     Cache Shodan a usar na etapa 6 (e na análise da etapa 7).
+                           Padrão: logs/shodan_cache.json (default do módulo).
+      --rate-limit N       Delay entre requisições à API Shodan, em segundos
+                           (repassado à etapa 6; padrão do módulo: 1.0).
+      --cache-save-every N Grava o cache Shodan em disco a cada N IPs novos
+                           (repassado à etapa 6; padrão do módulo: 500).
+      --region REGIAO      Região AWS de destino usada como fallback na etapa 2 quando
+                           100% dos destinos não resolvem via GeoIP/awsipranges.
   -p, --packet-limit N     Limite de pacotes por captura na etapa 1 (repassado ao
                            tshark via -c). Reduz drasticamente o tempo de extração
                            (ex.: -p 50000 ≈ 5-10 s por arquivo). Padrão: sem limite.
@@ -112,6 +130,10 @@ while [[ $# -gt 0 ]]; do
         -p|--packet-limit)   PACKET_LIMIT="$2"; shift 2 ;;
         -q|--shodan-queries) SHODAN_QUERIES="$2"; shift 2 ;;
         -s|--stop-file)      STOP_FILE="$2"; shift 2 ;;
+        -c|--cache-file)     CACHE_FILE="$2"; shift 2 ;;
+        --rate-limit)        RATE_LIMIT="$2"; shift 2 ;;
+        --cache-save-every)  CACHE_SAVE_EVERY="$2"; shift 2 ;;
+        --region)            REGION="$2"; shift 2 ;;
         --with-neo4j)        WITH_NEO4J=1; shift ;;
         --with-mysql)        WITH_MYSQL=1; shift ;;
         -h|--help)           usage; exit 0 ;;
@@ -125,6 +147,8 @@ is_positive_int() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 [[ -z "$NUM_PCAPS" ]] || is_positive_int "$NUM_PCAPS" || die "--num-pcaps deve ser um inteiro positivo: $NUM_PCAPS"
 [[ -z "$PACKET_LIMIT" ]] || is_positive_int "$PACKET_LIMIT" || die "--packet-limit deve ser um inteiro positivo: $PACKET_LIMIT"
 [[ -z "$SHODAN_QUERIES" ]] || is_positive_int "$SHODAN_QUERIES" || die "--shodan-queries deve ser um inteiro positivo: $SHODAN_QUERIES"
+[[ -z "$CACHE_SAVE_EVERY" ]] || is_positive_int "$CACHE_SAVE_EVERY" || die "--cache-save-every deve ser um inteiro positivo: $CACHE_SAVE_EVERY"
+[[ -z "$RATE_LIMIT" ]] || [[ "$RATE_LIMIT" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "--rate-limit deve ser um número positivo: $RATE_LIMIT"
 command -v tshark >/dev/null 2>&1 || die "tshark não encontrado no PATH"
 
 PY="python3"
@@ -134,6 +158,12 @@ fi
 
 "$PY" -c 'import geoip2.database, awsipranges, shodan, dotenv' >/dev/null 2>&1 \
     || die "Dependências Python ausentes em $PY (geoip2, awsipranges, shodan, dotenv)"
+
+if "$PY" -c 'import pandas, matplotlib' >/dev/null 2>&1; then
+    HAS_ANALYSIS=1
+else
+    log "AVISO: pandas/matplotlib ausentes em $PY — a etapa 7 (análise de resultados) será pulada."
+fi
 
 if [[ ! -s ".env" ]] || ! grep -qE '^SHODAN_API_KEY=..+' ".env"; then
     die "SHODAN_API_KEY não encontrada em .env (necessária para a etapa 6)"
@@ -204,7 +234,7 @@ rodar() {
 }
 
 etapa1_extracao() {
-    local cmd=(python3 src/1_generate_tshark_csv.py "$RUN_DIR")
+    local cmd=("$PY" src/1_generate_tshark_csv.py "$RUN_DIR")
     if [[ -n "$PACKET_LIMIT" ]]; then
         cmd+=(--packet-limit "$PACKET_LIMIT")
     fi
@@ -214,7 +244,9 @@ etapa1_extracao() {
 etapa2_enriquecimento() {
     exige "$RUN_DIR/output.csv.gz" || return 0
     local st=0
-    zcat "$RUN_DIR/output.csv.gz" | "$PY" src/2_enrich_csv.py | gzip > "$ENRICHED" || st=$?
+    local enrich_args=()
+    [[ -z "$REGION" ]] || enrich_args+=(--region "$REGION")
+    zcat "$RUN_DIR/output.csv.gz" | "$PY" src/2_enrich_csv.py "${enrich_args[@]}" | gzip > "$ENRICHED" || st=$?
     if (( st == 130 || st == 143 )); then
         return "$st"
     fi
@@ -250,19 +282,38 @@ etapa3_resumo() {
 etapa6_shodan() {
     exige "$ENRICHED" || return 0
     local st=0
+    local shodan_args=(--stop-file "$STOP_FILE")
+    [[ -z "$CACHE_FILE" ]] || shodan_args+=(--cache-file "$CACHE_FILE")
+    [[ -z "$RATE_LIMIT" ]] || shodan_args+=(--rate-limit "$RATE_LIMIT")
+    [[ -z "$CACHE_SAVE_EVERY" ]] || shodan_args+=(--cache-save-every "$CACHE_SAVE_EVERY")
+    [[ -z "$SHODAN_QUERIES" ]] || shodan_args+=(--max-new-queries "$SHODAN_QUERIES")
     rm -f -- "$STOP_FILE"
-    if [[ -n "$SHODAN_QUERIES" ]]; then
-        zcat "$ENRICHED" | awk -v n="$SHODAN_QUERIES" 'NR<=n' | "$PY" src/6_shodan_enrich.py --stop-file "$STOP_FILE" | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
-    else
-        zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py --stop-file "$STOP_FILE" | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
-    fi
+    zcat "$ENRICHED" | "$PY" src/6_shodan_enrich.py "${shodan_args[@]}" | gzip > "$RUN_DIR/output.shodan.csv.gz" || st=$?
     if (( st == 130 || st == 143 )); then
         return "$st"
+    fi
+    if (( st == 10 )); then
+        log "Etapa 6 encerrada por limite de consultas novas (--shodan-queries $SHODAN_QUERIES)."
+        return 0
     fi
     if (( st != 0 )) && [[ ! -s "$RUN_DIR/output.shodan.csv.gz" ]]; then
         return "$st"
     fi
     (( st == 0 )) || log "AVISO: entrada possivelmente truncada por interrupção — Shodan aplicado aos dados recuperáveis."
+    return 0
+}
+
+etapa7_analise() {
+    (( HAS_ANALYSIS )) || return 0
+    exige "$RUN_DIR/output.shodan.csv.gz" || return 0
+    local st=0
+    local analise_args=(--original-csv "$ENRICHED" --output-dir "$RUN_DIR")
+    [[ -z "$CACHE_FILE" ]] || analise_args+=(--cache-file "$CACHE_FILE")
+    zcat "$RUN_DIR/output.shodan.csv.gz" | "$PY" src/7_analyze_results.py "${analise_args[@]}" || st=$?
+    if (( st == 130 || st == 143 )); then
+        return "$st"
+    fi
+    (( st == 0 )) || log "AVISO: análise de resultados (etapa 7) encerrou com código $st."
     return 0
 }
 
@@ -321,7 +372,7 @@ ENRICHED="$RUN_DIR/output.enriched.csv.gz"
 rodar "1 — extração tshark" etapa1_extracao
 rodar "2 — enriquecimento GeoIP + AWS" etapa2_enriquecimento
 if [[ -n "$SHODAN_QUERIES" ]]; then
-    log "Etapa 6 limitada às $SHODAN_QUERIES primeiras linhas do CSV enriquecido"
+    log "Etapa 6 limitada a até $SHODAN_QUERIES consultas novas à API Shodan (cache hits não contam)"
 else
     log "Etapa 6 processará todas as linhas; cada IP novo consome 1 consulta"
 fi
@@ -329,12 +380,13 @@ log "Marcador de parada da etapa 6 (Shodan): $STOP_FILE"
 log "Para encerrar a coleta e finalizar a execução graciosamente: touch \"$STOP_FILE\""
 rodar "3 — resumo LaTeX" etapa3_resumo
 rodar "6 — enriquecimento Shodan" etapa6_shodan
+rodar "7 — análise de resultados" etapa7_analise
 rodar "4 — grafo Neo4j (Cypher)" etapa4_neo4j
 rodar "5 — importação MySQL/MariaDB" etapa5_mysql
 
 log "Execução concluída: $RUN_DIR"
 log "Artefatos gerados:"
-for ARQUIVO in subset_manifest.csv subset_manifest.json output.csv.gz output.enriched.csv.gz output.tex output.shodan.csv.gz output_neo4j.cypher; do
+for ARQUIVO in subset_manifest.csv subset_manifest.json output.csv.gz output.enriched.csv.gz output.tex output.shodan.csv.gz output_neo4j.cypher os_distribution.csv org_ranking.csv isp_ranking.csv top_ports.csv port_cves.csv comparacao_pipeline.csv geo_os_cross.csv; do
     if [[ -e "$RUN_DIR/$ARQUIVO" ]]; then
         log "  $RUN_DIR/$ARQUIVO"
     fi

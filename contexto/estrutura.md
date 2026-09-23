@@ -79,8 +79,8 @@ Observações:
 - `src/7_analyze_results.py`: análise de resultados pós-Shodan (etapa 7; não faz parte do fluxo ETL — lê o CSV de 28 colunas e gera tabelas/gráficos).
 - `datasets/execucao_pipeline_<origem>_<data_hora>/`: diretórios criados a cada
   execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +
-  artefatos `output*`). Cada execução é isolada; nada de execuções anteriores é
-  removido ou alterado.
+  artefatos `output*` e os CSVs/PNGs da análise da etapa 7). Cada execução é
+  isolada; nada de execuções anteriores é removido ou alterado.
 - `datasets/rotacao_shodan_<origem>_<data_hora>/`: diretórios criados pelo
   rotacionador `other/shodan_rotation.sh`. Contêm `regions/<região>/`
   (`output.csv.gz`, `output.enriched.csv.gz`, `.done`, `shodan.log`),

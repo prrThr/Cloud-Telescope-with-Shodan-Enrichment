@@ -6,6 +6,69 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## J. `full_etl.sh` como comando canônico "execute pipeline" (etapas 0→7)
+
+### Objetivo
+
+Transformar o `other/full_etl.sh` no comando único de execução do pipeline, rodando
+todas as etapas (0→7, incluindo a análise da etapa 7) e alinhando o flag
+`-q/--shodan-queries` ao significado real de "número de consultas Shodan": até N
+consultas **novas** à API (reusando `--max-new-queries` da etapa 6), em vez do
+antigo limite de "N primeiras linhas".
+
+### Alterações realizadas
+
+- `other/full_etl.sh`:
+  - `-q/--shodan-queries N` agora alimenta a etapa 6 com `--max-new-queries N`
+    (consultas novas reais; cache hits não contam), em substituição ao
+    `awk 'NR<=N'`. O `exit 10` (limite atingido) passou a ser tratado como parada
+    graciosa (loga e retorna 0), mantendo o `output.shodan.csv.gz` íntegro e
+    prosseguindo para a etapa 7.
+  - Nova **etapa 7 (análise de resultados)** no fluxo, sempre executada quando
+    `pandas`/`matplotlib` estão disponíveis no interpretador usado (senão, avisa e
+    pula). Invoca `7_analyze_results.py --original-csv <enriquecido> --output-dir
+    <execução>` (e `--cache-file`, quando informado) sobre o `output.shodan.csv.gz`.
+  - Seleção do interpretador unificada: a etapa 1 agora usa `$PY` (venv) como as
+    demais (antes hardcoded `python3`).
+  - Novos flags de pass-through: `-c/--cache-file`, `--rate-limit`,
+    `--cache-save-every` (etapa 6; o cache-file também vai para a etapa 7) e
+    `--region` (fallback da etapa 2), com validação no preflight.
+  - `usage()` e mensagens atualizadas (etapas 0→7, semântica de `-q`, artefatos da
+    etapa 7 no resumo final).
+
+### Comportamento esperado
+
+- `other/full_etl.sh -d ... -q N` encerra a etapa 6 após até N consultas novas e
+  gera os artefatos das etapas 0→7 (CSVs/PNGs da análise inclusos).
+- `-q` ausente: etapa 6 processa todas as linhas.
+- Sem `pandas`/`matplotlib`: aviso e etapa 7 pulada; demais etapas seguem.
+- Flags inválidos (`-q 0`, `--rate-limit abc`, `--cache-save-every abc`) → erro no
+  preflight, exit 1.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `bash -n other/full_etl.sh` | sintaxe válida | OK |
+| `other/full_etl.sh --help` | ajuda, exit 0, stderr vazio | OK |
+| E2E offline (2 pcaps sintéticos Ethernet+IPv4+UDP, cache temporário pré-povoado com os 2 IPs de origem, `-q 2 -c <cache>`) | exit 0; 18 colunas no enriquecido; 28 no shodan; artefatos da etapa 7 presentes; 0 API calls | OK — 18/28 colunas, 2 linhas, `API calls: 0`, `os_distribution`/`org_ranking`/`isp_ranking`/`top_ports`/`port_cves`/`comparacao_pipeline`/`geo_os_cross` gerados |
+| E2E com flags de pass-through (`--rate-limit 0 --cache-save-every 2 --region af-south-1`) | exit 0, execução completa | OK |
+| Validação: `-q 0`, `--rate-limit abc`, `--cache-save-every abc`, `-n 0` | erro de preflight, exit 1 | OK |
+
+Testes sem gasto de créditos (todas as consultas foram cache hits em cache
+temporário). Diretórios de execução de teste removidos ao final.
+
+### Problemas ou limitações
+
+- O ramo `exit 10 → parada graciosa` do `full_etl.sh` não é exercitado no teste de 0
+  créditos (com tudo em cache nenhuma consulta nova é feita); a lógica de `exit 10`
+  da etapa 6 é coberta pelo teste unitário de `--max-new-queries` (seção 2.7 de
+  `tests/exemplos_de_testes.md`).
+- A etapa 7 depende de `pandas`/`matplotlib`; sem elas, é pulada com aviso (não
+  falha a execução).
+
+---
+
 ## I. Cobertura real do Shodan na etapa 7 (`comparacao_pipeline`)
 
 ### Objetivo
