@@ -23,6 +23,7 @@ Diretório raiz: `ibr-etl`
 │   ├── Cloud_Telescope.md     # TCC do prof. Bortoluzzi (referência conceitual)
 │   ├── dataset_e3.md            # diferenças entre datasets e uso nos testes (vivo)
 │   ├── estrutura.md           # este arquivo (vivo)
+│   ├── guia_execucao.md       # guia prático: rodar, parar, background, visualizações (vivo)
 │   ├── implementacoes_e_testes.md  # registro histórico de implementações/testes
 │   ├── instrucoes.md          # processo detalhado de trabalho para agentes de IA
 │   ├── pipeline.md            # etapas atuais do pipeline (vivo)
