@@ -276,7 +276,6 @@ for key,value in count_source_country_name.items():
     else:
         icmp = 0
     merged_source_country_transport_layer[key]=[tcp, udp, icmp]
-print(merged_source_country_transport_layer)
 
 
 
@@ -319,24 +318,20 @@ print(merged_source_country_transport_layer)
 ### Dump raw variables to a dumpfile
 
 file = os.path.join(PROJECT_ROOT, 'logs', 'summarize_radiation_dict_dump.txt')
+dump_file = open(file, 'w')
 
 def dumpdict(d,dn):
-    with open(file, 'a') as f:
-        #f.readlines
-        #eof = f.tell()
-        #f.seek(eof)
-        f.write('\n')
-        f.write('Dumping: ' + dn + '\n')
-        result = sorted(d.items(), key=lambda x: x[1], reverse=True)
-        total=sum(d.values())
-        subtotal=0
-        for key,value in result:
-            #print(key + "," + str(value) + "," + percentage(value,total))
-            f.write(key + " & " + f"{value:,}" + " & " + str(percentage(value,total)).replace("%","") + "  \n")
-            subtotal+=value
-        print("Sub-total" + " & " + f"{subtotal:,}" + " & " + str(percentage(subtotal,total)).replace("%","") + "  \n")
-        print("Total" + " & " + f"{total:,}" + " & " + str(percentage(total,total)).replace("%","") + "  \n")
-    f.close
+    f = dump_file
+    f.write('\n')
+    f.write('Dumping: ' + dn + '\n')
+    result = sorted(d.items(), key=lambda x: x[1], reverse=True)
+    total=sum(d.values())
+    subtotal=0
+    for key,value in result:
+        f.write(key + " & " + f"{value:,}" + " & " + str(percentage(value,total)).replace("%","") + "  \n")
+        subtotal+=value
+    f.write("Sub-total" + " & " + f"{subtotal:,}" + " & " + str(percentage(subtotal,total)).replace("%","") + "  \n")
+    f.write("Total" + " & " + f"{total:,}" + " & " + str(percentage(total,total)).replace("%","") + "  \n")
 
 
 dumpdict(count_ipsrc, 'count_ipsrc')
@@ -365,3 +360,5 @@ dumpdict(count_aws_country_code_icmp, 'count_aws_country_code_icmp')
 dumpdict(count_global_stats_transport, 'count_global_stats_transport')
 dumpdict(count_global_stats_ip_sources, 'count_global_stats_ip_sources')
 dumpdict(count_global_stats_ip_destinations, 'count_global_stats_ip_destinations')
+
+dump_file.close()

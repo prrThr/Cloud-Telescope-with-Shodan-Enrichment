@@ -6,6 +6,319 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## K. Correções nas etapas 1, 2, 3 e 4 (`src/`)
+
+### Objetivo
+
+Corrigir defeitos identificados na análise do pipeline, sem alterar os contratos
+stdin/stdout nem o formato dos CSVs (7/18/28 colunas):
+
+- **Etapa 1** (`1_generate_tshark_csv.py`): o flag `--max-files` colidia
+  conceitualmente com o `--max-files` (estratificado) da etapa 0; e a constante
+  `PROJECT_ROOT` era calculada mas nunca usada.
+- **Etapa 2** (`2_enrich_csv.py`): `logs/trimmed_entries.csv` era aberto a cada
+  execução e nunca escrito (arquivo vazio enganoso, feature nunca implementada).
+- **Etapa 3** (`3_summarize_radiation.py`): um `print` do dicionário
+  `merged_source_country_transport_layer` e os `print` de `Sub-total`/`Total` dentro
+  de `dumpdict` poluíam o `output.tex` (misturados às tabelas LaTeX); o dump era
+  aberto em modo append, acumulando entre execuções.
+- **Etapa 4** (`4_generate_graph.py`): os `enriched_unique_*_IPs.csv` eram abertos
+  por caminho relativo (dependente do CWD) e o mapeamento de colunas do CSV
+  enriquecido no stdin estava deslocado a partir do índice 4 (tratava
+  `tcp.flags.str` como `udp.dstport`), classificando mal o protocolo.
+
+### Alterações realizadas
+
+- `src/1_generate_tshark_csv.py`: removido `PROJECT_ROOT` (não usado); flag
+  `--max-files` renomeado para `--max-pcap-files` (variável `max_pcap_files`); exemplo
+  do help atualizado (`e1_subset` → `e3_subset`).
+- `src/2_enrich_csv.py`: removidos a abertura e o fechamento de `trimmed_entries`.
+- `src/3_summarize_radiation.py`: removido o `print(merged_source_country_transport_layer)`;
+  `dumpdict` agora grava `Sub-total`/`Total` no arquivo (`f.write`, antes `print` no
+  stdout) e o dump é aberto uma vez em modo `w` (idempotente), com `dump_file.close()`
+  ao final.
+- `src/4_generate_graph.py`: adicionado `PROJECT_ROOT` e os dois arquivos de IPs
+  únicos passam a ser abertos via `os.path.join(PROJECT_ROOT, ...)`; corrigidos os
+  índices das colunas do stdin para o CSV de 18 colunas (`udpdstport=line[5]`,
+  `icmptype=line[6]`, ..., `aws_region=line[17]`).
+- Documentação: `contexto/pipeline.md` (etapa 1 `--max-pcap-files`; etapa 2 sem
+  `trimmed_entries`; etapa 4 com entradas da raiz), `contexto/estrutura.md` (remove
+  `logs/trimmed_entries.csv`) e `tests/exemplos_de_testes.md` (reconciliação
+  `entrada = enriquecidas + anomalous_entries`; nota sobre o dump da etapa 3; etapa 4
+  com caminhos do `PROJECT_ROOT`).
+
+### Comportamento esperado
+
+- Etapa 1: `--max-pcap-files N` limita arquivos sem estratificação; `--max-files`
+  passa a ser exclusivo da etapa 0.
+- Etapa 2: `logs/trimmed_entries.csv` não é mais criado.
+- Etapa 3: `output.tex` contém apenas LaTeX; `logs/summarize_radiation_dict_dump.txt`
+  tem tamanho estável entre execuções.
+- Etapa 4: roda de qualquer CWD e classifica corretamente TCP/UDP/ICMP.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `py_compile` dos 4 módulos | compilam | OK |
+| Etapa 1 `--help` | exibe `--max-pcap-files`, sem `--max-files` | OK |
+| Etapa 1 `--max-pcap-files 1` (2 pcaps sintéticos) | processa 1 arquivo, `output.csv.gz` com 1 linha | OK |
+| Etapa 1 `--max-files 1` | rejeitado (unrecognized arguments, exit 2) | OK |
+| Etapa 2 sobre CSV bruto sintético (2 linhas) | exit 0; 18 colunas; `logs/trimmed_entries.csv` ausente | OK |
+| Etapa 3 vs versão anterior (3 linhas sintéticas) | sem dict (`{`) e sem `Sub-total`/`Total` fora do `\\` | OK — OLD: 1 dict + 40 linhas vazadas (+40 em branco) = 81 linhas extras; NEW: 0 |
+| Etapa 3 idempotência do dump | mesmo nº de linhas nas 2 execuções | OK — 111 e 111 |
+| Etapa 4 vs versão anterior (18 col: TCP/UDP/ICMP) | NEW: tcp/80, udp/53, icmp/8; OLD errava udp→icmp e icmp→unknown | OK |
+| Etapa 4 a partir de `/tmp/opencode` | encontra fixtures na raiz do projeto | OK |
+
+Testes sem gasto de créditos. Fixtures temporárias (`enriched_unique_*_IPs.csv`) e
+arquivos em `/tmp/opencode` removidos ao final.
+
+### Problemas ou limitações
+
+- A etapa 4 segue dependendo de `enriched_unique_source_IPs.csv` /
+  `enriched_unique_destination_IPs.csv`, que a etapa 2 ainda **não gera** (bloco
+  comentado); o `full_etl.sh --with-neo4j` valida a presença dessas fixtures antes de
+  rodar. Sem elas, a etapa 4 falha ao abrir os arquivos (comportamento pré-existente).
+- O `merged_source_country_transport_layer` (usado apenas por visualizações
+  comentadas) continua sendo calculado, porém sem ser impresso.
+- `logs/trimmed_entries.csv` pode existir como resíduo de execuções anteriores
+  (arquivo ignorado pelo git); não é mais recriado.
+
+---
+
+## J. `full_etl.sh` como comando canônico "execute pipeline" (etapas 0→7)
+
+### Objetivo
+
+Transformar o `other/full_etl.sh` no comando único de execução do pipeline, rodando
+todas as etapas (0→7, incluindo a análise da etapa 7) e alinhando o flag
+`-q/--shodan-queries` ao significado real de "número de consultas Shodan": até N
+consultas **novas** à API (reusando `--max-new-queries` da etapa 6), em vez do
+antigo limite de "N primeiras linhas".
+
+### Alterações realizadas
+
+- `other/full_etl.sh`:
+  - `-q/--shodan-queries N` agora alimenta a etapa 6 com `--max-new-queries N`
+    (consultas novas reais; cache hits não contam), em substituição ao
+    `awk 'NR<=N'`. O `exit 10` (limite atingido) passou a ser tratado como parada
+    graciosa (loga e retorna 0), mantendo o `output.shodan.csv.gz` íntegro e
+    prosseguindo para a etapa 7.
+  - Nova **etapa 7 (análise de resultados)** no fluxo, sempre executada quando
+    `pandas`/`matplotlib` estão disponíveis no interpretador usado (senão, avisa e
+    pula). Invoca `7_analyze_results.py --original-csv <enriquecido> --output-dir
+    <execução>` (e `--cache-file`, quando informado) sobre o `output.shodan.csv.gz`.
+  - Seleção do interpretador unificada: a etapa 1 agora usa `$PY` (venv) como as
+    demais (antes hardcoded `python3`).
+  - Novos flags de pass-through: `-c/--cache-file`, `--rate-limit`,
+    `--cache-save-every` (etapa 6; o cache-file também vai para a etapa 7) e
+    `--region` (fallback da etapa 2), com validação no preflight.
+  - `usage()` e mensagens atualizadas (etapas 0→7, semântica de `-q`, artefatos da
+    etapa 7 no resumo final).
+
+### Comportamento esperado
+
+- `other/full_etl.sh -d ... -q N` encerra a etapa 6 após até N consultas novas e
+  gera os artefatos das etapas 0→7 (CSVs/PNGs da análise inclusos).
+- `-q` ausente: etapa 6 processa todas as linhas.
+- Sem `pandas`/`matplotlib`: aviso e etapa 7 pulada; demais etapas seguem.
+- Flags inválidos (`-q 0`, `--rate-limit abc`, `--cache-save-every abc`) → erro no
+  preflight, exit 1.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `bash -n other/full_etl.sh` | sintaxe válida | OK |
+| `other/full_etl.sh --help` | ajuda, exit 0, stderr vazio | OK |
+| E2E offline (2 pcaps sintéticos Ethernet+IPv4+UDP, cache temporário pré-povoado com os 2 IPs de origem, `-q 2 -c <cache>`) | exit 0; 18 colunas no enriquecido; 28 no shodan; artefatos da etapa 7 presentes; 0 API calls | OK — 18/28 colunas, 2 linhas, `API calls: 0`, `os_distribution`/`org_ranking`/`isp_ranking`/`top_ports`/`port_cves`/`comparacao_pipeline`/`geo_os_cross` gerados |
+| E2E com flags de pass-through (`--rate-limit 0 --cache-save-every 2 --region af-south-1`) | exit 0, execução completa | OK |
+| Validação: `-q 0`, `--rate-limit abc`, `--cache-save-every abc`, `-n 0` | erro de preflight, exit 1 | OK |
+
+Testes sem gasto de créditos (todas as consultas foram cache hits em cache
+temporário). Diretórios de execução de teste removidos ao final.
+
+### Problemas ou limitações
+
+- O ramo `exit 10 → parada graciosa` do `full_etl.sh` não é exercitado no teste de 0
+  créditos (com tudo em cache nenhuma consulta nova é feita); a lógica de `exit 10`
+  da etapa 6 é coberta pelo teste unitário de `--max-new-queries` (seção 2.7 de
+  `tests/exemplos_de_testes.md`).
+- A etapa 7 depende de `pandas`/`matplotlib`; sem elas, é pulada com aviso (não
+  falha a execução).
+
+---
+
+## I. Cobertura real do Shodan na etapa 7 (`comparacao_pipeline`)
+
+### Objetivo
+
+A comparação antiga (`pipeline original 18 col vs estendido 28 col`) era enganosa:
+como o CSV de 28 colunas emite uma linha para todo IP (com campos Shodan vazios para
+IPs não consultados), quase todos os IPs apareciam como "sem dados", e "ainda não
+consultados" ficava ~0. O objetivo foi medir a cobertura real a partir do cache
+Shodan, separando três categorias.
+
+### Alterações realizadas
+
+- `src/7_analyze_results.py`:
+  - `analisar_comparacao(df, caminho_original, caminho_cache, output_dir)`: usa o
+    cache (`logs/shodan_cache.json`, via novo argumento `--cache-file`) como fonte
+    de verdade. Categorias: **consultados com dados** (`found=true`), **consultados
+    sem dados** (`found=false`) e **não consultados** (ausentes do cache), sempre
+    restritos ao universo (`--original-csv`, ou o próprio CSV de entrada).
+  - Novo argumento `--cache-file` (padrão `logs/shodan_cache.json`).
+  - Nova função `ler_cache_shodan()`; `plot_comparacao()` e o CSV
+    `comparacao_pipeline.csv` agora têm três categorias e colunas
+    `categoria,ips_unicos,pct_original`.
+  - Removida a função `ips_com_metadados_shodan()` e a constante
+    `SHODAN_FIELD_COLS` (sem uso após a mudança).
+
+### Comportamento esperado
+
+- `comparacao_pipeline.csv` com três linhas (com dados / sem dados / não consultados)
+  e `pct_original` percentual do universo.
+- Gráfico `comparacao_pipeline.png` com as três barras.
+- Resumo em stderr "Cobertura do enriquecimento Shodan" com os três números e o
+  tamanho do universo.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `venv/bin/python -m py_compile src/7_analyze_results.py` | compila | OK |
+| E2E offline: cache sintético (3 `found=true`, 2 `found=false`), CSV 28-col com 5 IPs (campos Shodan vazios), `--original-csv` com 6 IPs | CSV com 3/2/1 e `pct_original` 50/33.33/16.67; prova que a fonte é o cache, não o CSV | OK — `Consultados com dados no Shodan,3,50.0` / `Consultados sem dados no Shodan,2,33.33` / `Não consultados,1,16.67` |
+
+Teste sem consumo de créditos. Diretórios em `/tmp/opencode` removidos ao final.
+
+### Problemas ou limitações
+
+- A comparação depende do cache estar preenchido com o campo `found` (registros
+  antigos gerados antes dessa convenção não têm `found`; são tratados como
+  `found=false`, ou seja, "sem dados").
+- `--cache-file` aponta por padrão para o cache global; execuções com cache
+  temporário devem passar `--cache-file` explicitamente.
+
+---
+
+## H. Coleta Shodan rotativa entre agregados
+
+### Objetivo
+
+Permitir cobrir os 26 agregados do `datasets/e3_full` mesmo quando cada um é grande
+demais para ser esgotado em tempo hábil. Em vez de esgotar uma região por vez, a
+coleta processa até N consultas **novas** por região e "pula" para a próxima,
+acumulando cobertura de todos os agregados ao longo do tempo, compartilhando o cache
+global (cache hits não consomem crédito nem respeitam rate-limit).
+
+### Alterações realizadas
+
+- **`src/6_shodan_enrich.py` — `--max-new-queries N`:** encerra graciosamente após N
+  consultas novas (cache hits não contam), persiste o cache e sai com código **10**;
+  sem atingir o limite, a entrada termina e sai com código 0. `process_pipeline`
+  passou a retornar o motivo do término (`concluido`/`parado`/`limite`).
+- **`other/shodan_rotation.sh` (novo):** rotacionador. Para cada agregado, prepara
+  uma vez `regions/<região>/output.enriched.csv.gz` (etapas 1+2, reaproveitando se já
+  existir) e roda a etapa 6 com `--max-new-queries N` e `--stop-file`, descartando o
+  stdout e populando o cache. Regiões esgotadas (exit 0) recebem `.done` e são
+  puladas; exit 10 alterna para a próxima. Ao concluir todas, gera
+  `output.enriched.csv.gz` e `output.shodan.csv.gz` (28 colunas) numa passada rápida
+  (tudo cache hit). Opções: `-d`, `-q`, `-p`, `-r`, `-o` (retomada), `-s`, `-c`,
+  `--final`. Loga em `<work-dir>/rotacao.log` e por região em `regions/<região>/shodan.log`.
+
+### Comportamento esperado
+
+- Rotação avança de fato a cada rodada (cache hits não bloqueiam).
+- `-o <dir>` retoma uma coleta interrompida (regiões `.done` puladas).
+- `--stop-file` encerra ao fim da região corrente, com cache persistido.
+- Saída final só é gerada automaticamente quando todas as regiões concluem (ou com
+  `--final`).
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `venv/bin/python -m py_compile src/6_shodan_enrich.py` | compila | OK |
+| `6_shodan_enrich.py --help` | exibe `--max-new-queries` | OK |
+| Teste unitário offline (8 verificações: limite, api_calls, cache, 28 colunas, conclusão, stop, sem cap, retomada avança) | todas passam | OK — 8/8 |
+| `bash -n other/shodan_rotation.sh` | sintaxe válida | OK |
+| `shodan_rotation.sh --help` | ajuda, exit 0, stderr vazio | OK |
+| E2E offline (2 pcaps sintéticos Ethernet+IPv4+UDP, cache temporário pré-povoado, `-q 5`) | 0 API calls; `.done` nas 2 regiões; 18 e 28 colunas; `rotacao.log` não vazio | OK — `API calls: 0`; 5 linhas/28 col; `rotacao.log` com 18 linhas |
+| Retomada (`-o` no mesmo diretório) | pula `.done` e regera a saída final | OK |
+
+Testes sem gasto de créditos (todas as consultas foram cache hits em cache
+temporário). Diretórios de teste em `/tmp/opencode` removidos ao final.
+
+### Problemas ou limitações
+
+- O ramo "exit 10 → próxima região" do rotacionador não é exercitado no teste de 0
+  créditos (com tudo em cache nenhuma região atinge o limite); a lógica de limite é
+  coberta pelo teste unitário da etapa 6 e o despacho do rotacionador é um `elif`
+  simples.
+- Regiões ainda não concluídas são reprocessadas do início a cada rodada (cache hits,
+  sem rate-limit); o custo é de I/O, não de créditos.
+- `--final` com regiões pendentes pode consumir consultas novas (avisado no log).
+
+---
+
+## G. Sincronização da documentação com os datasets atuais (`e3_raw`/`e3_full`)
+
+### Objetivo
+
+A documentação canônica e os testes ainda referenciavam `datasets/e3` (e o default
+`datasets/e1`), diretórios que não existem mais. Os datasets reais são
+`datasets/e3_raw` (capturas brutas individuais, elegíveis à etapa 0) e
+`datasets/e3_full` (26 agregados por região AWS, não elegíveis à etapa 0). Além
+disso, o facilitador passou a exigir `-d/--dataset` (default `""`) e ganhou a opção
+`-p/--packet-limit`, ambos ainda não documentados.
+
+### Alterações realizadas
+
+- `AGENTS.md`: seção Datasets reescrita para `e3_raw`/`e3_full`; exemplos de execução
+  e nome do artefato (`output.shodan.csv.gz`).
+- `README.md`, `contexto/pipeline.md`, `contexto/estrutura.md`,
+  `contexto/instrucoes.md`: referências `datasets/e3` → `e3_raw`/`e3_full`.
+- `contexto/pipeline.md`: descrição do `full_etl.sh` atualizada (`-d` obrigatório,
+  `-p/--packet-limit`, custo de ~1 consulta ≈ 1 s por IP novo).
+- `tests/exemplos_de_testes.md`: comandos migrados para `e3_raw`/`e3_full`; correção
+  de `output.shodan.gz` → `output.shodan.csv.gz`; nova **seção 7** com E2E pequeno e
+  coleta longa em background (`tmux`/`nohup`) com parada via `--stop-file`.
+- `other/full_etl.sh`: apenas textos de `usage()`/AVISO (`e1`/`e3` →
+  `e3_raw`/`e3_full`, `-d` obrigatório) e escape das crases de `` `touch` `` no
+  heredoc do `usage()` (as crases não escapadas eram interpretadas como substituição
+  de comando, executando `touch` sem operando e imprimindo
+  `touch: missing file operand` no `--help`). **Nenhuma mudança de lógica.**
+- `Docker/Dockerfile`: diretórios comentados/criados como `e3_raw`/`e3_full`.
+- `src/0_select_representative_subset.py`: docstring atualizada para `e3_raw`.
+- `contexto/dataset_e3.md`: `output.shodan.gz` → `output.shodan.csv.gz`.
+
+### Comportamento esperado
+
+- Nenhuma referência operacional a `datasets/e3`/`datasets/e1` nos documentos vivos.
+- Documentação reflete `-d` obrigatório e a opção `-p` do `full_etl.sh`.
+- Nenhuma alteração de comportamento no código do pipeline.
+
+### Testes realizados e resultados
+
+| Teste | Resultado esperado | Resultado obtido |
+|---|---|---|
+| `bash -n other/full_etl.sh` | sintaxe válida | OK |
+| `venv/bin/python -m py_compile src/0_select_representative_subset.py` | compila | OK |
+| `rg` por `datasets/e3`/`datasets/e1`/`output.shodan.gz` nos docs vivos | apenas menção histórica em `dataset_e3.md` | OK — só a nota de datasets removidos |
+| `other/full_etl.sh --help` | `-d` obrigatório e `-p` documentados, sem ruído em stderr | OK — exit 0, stderr vazio |
+| `other/full_etl.sh` sem `-d` | erro de preflight, exit 1 | OK — `[full_etl] ERRO: Diretório do dataset não encontrado:` |
+
+### Problemas ou limitações
+
+- `other/full_etl.sh` com `DATASET=""` (sem `-d`) falha no preflight com a mensagem
+  genérica `Diretório do dataset não encontrado:` — funcional, mas pouco explícita
+  para o caso "opção obrigatória ausente".
+- `src/1_generate_tshark_csv.sh` (legado, substituído pelo `.py`) não consta em
+  `contexto/estrutura.md` e ainda cita `datasets/e1`; fora do escopo desta
+  sincronização.
+
+---
+
 ## F. Parada graciosa da coleta Shodan + gravação atômica do cache
 
 ### Objetivo

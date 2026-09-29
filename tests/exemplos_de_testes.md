@@ -36,11 +36,12 @@ antes, conforme as regras do projeto.
 ### 1.1 Etapa 0 — Amostragem (seleção de subconjunto)
 
 A etapa 0 reconhece a nomenclatura bruta (`<região><az>-<IP>-<data>-<hora>`) e
-funciona com o `datasets/e3` atual (capturas brutas com nomenclatura padrão).
+funciona com o `datasets/e3_raw` (capturas brutas com nomenclatura padrão). Não se
+aplica ao `datasets/e3_full` (agregado por região).
 
 ```sh
 rm -rf datasets/e3_subset
-python3 src/0_select_representative_subset.py datasets/e3 \
+python3 src/0_select_representative_subset.py datasets/e3_raw \
     --output datasets/e3_subset --max-files 12 --clean
 ```
 
@@ -75,17 +76,16 @@ zcat datasets/e3_subset/output.csv.gz \
 ```
 
 > Adiciona GeoIP de origem/destino + região AWS (18 colunas por linha). Gera logs
-> auxiliares em `logs/` (`cacheinfo.txt`, `anomalous_entries.csv`,
-> `trimmed_entries.csv`).
+> auxiliares em `logs/` (`cacheinfo.txt`, `anomalous_entries.csv`).
 >
 > **Comportamentos esperados:**
 > - IP fora da base GeoIP (ex.: destino privado `172.31.x.x`) recebe fallback
 >   `ZZ`/`ZZ Country`/região `Unknown` — não gera erro.
-> - **Reconciliação de linhas:** `entrada = enriquecidas + anomalous_entries +
->   trimmed_entries`. As anômalas são pacotes multi-camada IP (ICMP de erro que
+> - **Reconciliação de linhas:** `entrada = enriquecidas + anomalous_entries`.
+>   As anômalas são pacotes multi-camada IP (ICMP de erro que
 >   embute o cabeçalho original / túneis IP-in-IP), nos quais `ip.src`/`ip.dst`
 >   aparecem duplicados (`\,` no dump do tshark) e falham no "DIRTY IP CHECK"
->   (2_enrich_csv.py:41). Esse descarte é **intencional** (decisão de projeto);
+>   (ver `src/2_enrich_csv.py`). Esse descarte é **intencional** (decisão de projeto);
 >   não "corrigir".
 >
 > Verificação rápida:
@@ -100,7 +100,10 @@ zcat datasets/e3_subset/output.enriched.csv.gz \
     | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
 ```
 
-> Agregações de radiação; saída em texto/LaTeX (não gzip).
+> Agregações de radiação; saída em texto/LaTeX (não gzip). O dump auxiliar
+> (`logs/summarize_radiation_dict_dump.txt`) é **reescrito a cada execução** (não
+> acumula entre execuções) e o stdout contém apenas LaTeX — nenhum dicionário ou
+> linha de depuração.
 
 ### 1.5 Etapa 6 — Enriquecimento Shodan
 
@@ -117,7 +120,7 @@ zcat datasets/e3_subset/output.enriched.csv.gz \
 10 Shodan). Conferir com:
 
 ```sh
-zcat datasets/e3_subset/output.shodan.gz | head -1 | awk -F, '{print NF}'
+zcat datasets/e3_subset/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'
 ```
 
 ---
@@ -209,6 +212,38 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 > entra no `output.shodan`); o cache e o `.gz` permanecem íntegros e a linha
 > reaparece numa execução futura sobre o mesmo CSV enriquecido.
 
+### 2.7 Limite de consultas novas (`--max-new-queries`, base da rotação)
+
+Encerra após N consultas **novas** (cache hits não contam) e sai com **código 10**;
+sai com código 0 quando a entrada termina. Como cache hits não dormem no
+rate-limit, uma segunda passada avança para os próximos IPs novos. Verificação
+offline (0 créditos) com `query_shodan` simulado:
+
+```sh
+venv/bin/python - <<'PY'
+import io, sys, tempfile, importlib.util
+spec = importlib.util.spec_from_file_location('m6', 'src/6_shodan_enrich.py')
+m6 = importlib.util.module_from_spec(spec); spec.loader.exec_module(m6)
+m6.time.sleep = lambda s: None
+calls = {'n': 0}
+def fake(api, ip, retries=m6.MAX_RETRIES):
+    calls['n'] += 1
+    return {"found": True, "org":"x","isp":"y","asn":"AS1","os":"","open_ports":[],
+            "cpes":[],"cves":[],"tags":[],"hostnames":[],"last_seen":"",
+            "_services_count":0,"_raw_services":[],"_queried_at":"t"}
+m6.query_shodan = fake
+linhas = "".join(f"2023-01-01 00:00:00,10.0.0.{i},f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f\n"
+                 for i in range(1, 6))
+cache = m6.ShodanCache(tempfile.mktemp(suffix='.json'), save_every=100)
+old_in, old_out = sys.stdin, sys.stdout
+sys.stdin, sys.stdout = io.StringIO(linhas), io.StringIO()
+status = m6.process_pipeline(None, cache, rate_limit=0, max_new_queries=3)
+sys.stdin, sys.stdout = old_in, old_out
+print('status:', status, '| api_calls:', calls['n'])   # status: limite | api_calls: 3
+assert status == 'limite' and calls['n'] == 3
+PY
+```
+
 ---
 
 ## 3. Etapas 4 e 5 — consumidores paralelos (grafo / MySQL)
@@ -216,7 +251,9 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 As etapas 4 e 5 consomem o mesmo CSV enriquecido **em paralelo** ao resumo.
 
 - **Etapa 4 (grafo Neo4j):** lê `enriched_unique_source_IPs.csv` /
-  `enriched_unique_destination_IPs.csv` gerados pela etapa 2 e emite Cypher no stdout.
+  `enriched_unique_destination_IPs.csv` **da raiz do projeto** (`PROJECT_ROOT`,
+  independente do CWD) e o CSV enriquecido de 18 colunas do stdin, e emite Cypher no
+  stdout.
 - **Etapa 5 (MySQL):** importa o CSV enriquecido; requer servidor MySQL e credenciais
   configuradas no script (`host`, `user`, `password`).
 
@@ -229,14 +266,15 @@ testes rápidos do pipeline priorize as etapas 0–3 e 6.
 
 Lê o CSV de 28 colunas (enriquecido + Shodan) e gera distribuições estatísticas
 contando IPs únicos de origem: distribuição por OS, ranking de organizações,
-ranking de ISPs, portas abertas mais comuns com CVEs associados, comparação
-pipeline original (18 col) vs estendido (28 col) e distribuição geográfica de
-origem cruzada com OS.
+ranking de ISPs, portas abertas mais comuns com CVEs associados, cobertura do
+enriquecimento Shodan (a partir do cache) e distribuição geográfica de origem
+cruzada com OS.
 
 ```sh
 zcat datasets/e3_subset/output.shodan.csv.gz \
     | venv/bin/python src/7_analyze_results.py \
         --original-csv datasets/e3_subset/output.enriched.csv.gz \
+        --cache-file logs/shodan_cache.json \
         --output-dir datasets/e3_subset
 ```
 
@@ -245,12 +283,15 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 > completo; o terminal exibe apenas amostra), `comparacao_pipeline` e `geo_os_cross`.
 > Colunas: `shodan_os`/`shodan_org`/`shodan_isp`/`porta` + `ips_unicos,percentual`;
 > `port_cves`: `porta,cve,ips_afetados`; `comparacao_pipeline`:
-> `categoria,ips_unicos,pct_original,pct_processados`;
+> `categoria,ips_unicos,pct_original`;
 > `geo_os_cross`: `src_country,shodan_os,ips_unicos`.
-> A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como universo de IPs;
-> sem ele, a base é o próprio CSV de entrada. A análise geográfica gera apenas a
-> tabela `geo_os_cross.csv` (país de origem × OS, contagem de IPs únicos); a
-> plotagem em mapa (`geo_os_map.png`) foi descontinuada por ora.
+> A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como **universo** de
+> IPs (sem ele, a base é o próprio CSV de entrada) e o `--cache-file`
+> (`logs/shodan_cache.json`) como fonte de verdade, separando os IPs em três
+> categorias: *consultados com dados* (`found=true`), *consultados sem dados*
+> (`found=false`) e *não consultados* (ausentes do cache). A análise geográfica gera
+> apenas a tabela `geo_os_cross.csv` (país de origem × OS, contagem de IPs únicos);
+> a plotagem em mapa (`geo_os_map.png`) foi descontinuada por ora.
 
 **Verificações:**
 - exit 0;
@@ -259,8 +300,9 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 - PNGs correspondentes presentes e não vazios;
 - `port_cves.csv` presente (com cabeçalho mesmo sem associações);
 - `comparacao_pipeline.csv` com colunas
-  `categoria,ips_unicos,pct_original,pct_processados`; quando executado sobre o
-  subset truncado (300 linhas), deve indicar `Ainda não consultados` > 0;
+  `categoria,ips_unicos,pct_original` e exatamente as três linhas
+  `Consultados com dados no Shodan`, `Consultados sem dados no Shodan` e
+  `Não consultados`;
 - `geo_os_cross.csv` presente (colunas `src_country,shodan_os,ips_unicos`).
 
 
@@ -272,7 +314,7 @@ Valide qualquer mudança com uma **amostra pequena** e removendo saídas antigas
 
 ```sh
 rm -rf datasets/e3_subset
-python3 src/0_select_representative_subset.py datasets/e3 --output datasets/e3_subset --max-files 12 --clean
+python3 src/0_select_representative_subset.py datasets/e3_raw --output datasets/e3_subset --max-files 12 --clean
 python3 src/1_generate_tshark_csv.py datasets/e3_subset
 zcat datasets/e3_subset/output.csv.gz | venv/bin/python src/2_enrich_csv.py | gzip > datasets/e3_subset/output.enriched.csv.gz
 zcat datasets/e3_subset/output.enriched.csv.gz | venv/bin/python src/3_summarize_radiation.py > datasets/e3_subset/output.tex
@@ -287,27 +329,41 @@ zcat datasets/e3_subset/output.shodan.csv.gz | venv/bin/python src/7_analyze_res
 
 ## 6. Facilitador `other/full_etl.sh`
 
-Executa o pipeline por inteiro (etapas 1→2→3→6; etapa 0 quando `-n`; etapas 4 e 5
+Executa o pipeline por inteiro (etapas 0→7; etapa 0 quando `-n`; etapas 4 e 5
 opcionais) criando um **novo diretório** `datasets/execucao_pipeline_<origem>_<data_hora>`
 por execução. O dataset de origem só é lido (links simbólicos); execuções anteriores
 nunca são removidas ou alteradas. Pré-requisitos (tshark, dependências Python,
 `SHODAN_API_KEY` no `.env`, fixtures de Neo4j/MySQL quando solicitados) são validados
-**antes** de qualquer processamento.
+**antes** de qualquer processamento. A etapa 7 (análise) roda sempre que
+`pandas`/`matplotlib` estiverem disponíveis no interpretador usado; caso contrário,
+emite aviso e é pulada.
+
+> **`-d/--dataset` é obrigatório** (sem padrão). Use `datasets/e3_raw` (capturas
+> brutas individuais, elegíveis à etapa 0) ou `datasets/e3_full` (agregado por região,
+> vinculado por ordem alfabética).
 
 ```sh
-other/full_etl.sh --help                          # ajuda
-other/full_etl.sh                                 # tudo do datasets/e3 (padrão)
-other/full_etl.sh -d datasets/e3 -n 12            # etapa 0 com até 12 capturas
-other/full_etl.sh -d datasets/e3 -n 12 -q 60      # ... e Shodan limitado a 60 linhas (~60 consultas no pior caso)
+other/full_etl.sh --help                              # ajuda
+other/full_etl.sh -d datasets/e3_full                 # tudo do e3_full (26 capturas)
+other/full_etl.sh -d datasets/e3_raw -n 12            # etapa 0 com até 12 capturas
+other/full_etl.sh -d datasets/e3_raw -n 12 -q 60      # ... e Shodan limitado a 60 consultas novas
+other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 60  # 1 captura, 60 pacotes, até 60 consultas novas no Shodan
 ```
 
 > **Nota sobre `-n`:** a estratificação da etapa 0 garante ao menos 1 captura por
-> região presente no dataset (26 regiões no `datasets/e3`); `-n` menor que o número
-> de regiões resulta em 1 captura por região (o script registra a quantidade real
-> em "Capturas na execução").
+> região presente no dataset (26 regiões no `datasets/e3_raw`); `-n` menor que o
+> número de regiões resulta em 1 captura por região (o script registra a quantidade
+> real em "Capturas na execução"). Em `datasets/e3_full` a etapa 0 não se aplica: os
+> 26 agregados são vinculados por ordem alfabética.
 >
-> **Créditos Shodan:** sem `-q`, todos os IPs de origem novos consomem ~1 consulta
-> cada. Com `-q N`, apenas as N primeiras linhas do CSV enriquecido chegam à etapa 6.
+> **`-p/--packet-limit N`** limita pacotes por captura na etapa 1 (tshark `-c`),
+> acelerando bastante a extração em testes.
+>
+> **Créditos Shodan:** cada IP de origem **novo** consome ~1 consulta (~1 s de
+> rate-limit). Sem `-q`, todos os IPs novos do CSV enriquecido são consultados; com
+> `-q N`, a etapa 6 encerra graciosamente após **até N consultas novas** (cache hits
+> e IPs repetidos não contam) e a execução segue para a etapa 7. IPs já no cache
+> (`logs/shodan_cache.json`) não consomem créditos.
 
 **Coleta longa (ex.: madrugada) com parada manual no dia seguinte:** a etapa 6
 respeita um marcador de parada (`-s/--stop-file`; padrão `<execução>/stop_shodan`).
@@ -315,10 +371,13 @@ Ao criar o arquivo, o módulo encerra a linha corrente, faz `flush` do cache e s
 com código 0 — a execução segue e o `output.shodan.csv.gz` fica íntegro:
 
 ```sh
-other/full_etl.sh -d datasets/e3 -n 300 &        # inicia a coleta
+other/full_etl.sh -d datasets/e3_full &          # inicia a coleta
 # na manhã seguinte, encerrar graciosamente (o caminho exato é logado pelo script):
 touch datasets/execucao_pipeline_<origem>_<data_hora>/stop_shodan
 ```
+
+> Para manter a coleta viva mesmo ao fechar o terminal, rode dentro de uma sessão
+> `tmux` (ver seção 7).
 
 ### Teste rápido sem tocar nos datasets reais
 
@@ -335,7 +394,7 @@ Verificações:
 
 - exit 0 e diretório `datasets/execucao_pipeline_ds_fake_*` criado;
 - artefatos presentes: `output.csv.gz`, `output.enriched.csv.gz`,
-  `output.tex`, `output.shodan.gz`;
+  `output.tex`, `output.shodan.csv.gz`;
 - `zcat <execução>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
 - `zcat <execução>/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'` → 28.
 
@@ -370,3 +429,143 @@ other/full_etl.sh -d /tmp/opencode/ds_mix    # NÃO deve exibir o AVISO
 
 Opção desconhecida, dataset inexistente, `-n`/`-q` não positivos, pré-requisitos
 ausentes → mensagem `[full_etl] ERRO:` e exit 1 **sem criar** diretório de execução.
+
+---
+
+## 7. E2E pequeno e coleta longa em background
+
+### 7.1 E2E pequeno (recomendado para validar uma alteração)
+
+Usa o `e3_full` (destinos públicos ⇒ GeoIP significativo) com **1 captura**, limite
+de 60 pacotes na extração e no máximo 10 consultas Shodan. Lembrete: cada IP de
+origem **novo** custa ~1 consulta (~1 s); IPs já em cache não custam crédito.
+
+```sh
+other/full_etl.sh -d datasets/e3_full -n 1 -p 60 -q 10
+```
+
+Verificações (copie o caminho `datasets/execucao_pipeline_<origem>_<data_hora>` logado
+ao final da execução para `RUN`; **não liste `datasets/`** — ver `AGENTS.md`):
+
+```sh
+RUN=datasets/execucao_pipeline_e3_full_<data_hora>   # caminho logado pelo full_etl.sh
+zcat "$RUN/output.enriched.csv.gz" | head -1 | awk -F, '{print NF}'   # 18
+zcat "$RUN/output.shodan.csv.gz"   | head -1 | awk -F, '{print NF}'   # 28
+grep 'API calls' logs/shodan_enrich.log | tail -1                       # <= 10 (limite de consultas novas)
+```
+
+> Com `-q 10`, a etapa 6 encerra após **até 10 consultas novas**; o número de linhas
+> de `output.shodan.csv.gz` pode ser maior que 10 (IPs repetidos e cache hits também
+> geram linha). A métrica confiável de custo é `API calls` no log, não `wc -l`.
+
+Alternativa usando a amostragem estratificada do `e3_raw` (26 capturas, uma por
+região, e no máximo 5 consultas Shodan):
+
+```sh
+other/full_etl.sh -d datasets/e3_raw -n 12 -q 5
+```
+
+> `-q` deve ser inteiro positivo. Para um E2E **sem consumir créditos**, restrinja a
+> etapa 6 a IPs já presentes em `logs/shodan_cache.json` (cache hits) ou valide-a
+> isoladamente com o cache existente (seção 2.3). As etapas 0–3 não usam a API do
+> Shodan e podem ser testadas à vontade.
+
+### 7.2 Coleta longa em background com `tmux`
+
+O rate-limit do Shodan é de ~1 consulta/s. Uma coleta com alguns milhares de IPs
+novos leva de dezenas de minutos a horas — rode em uma sessão `tmux` separada para
+poder fechar o terminal e continuar trabalhando em outra etapa.
+
+```sh
+# 1. cria (ou reusa) uma sessão dedicada
+tmux new -s ibr-shodan
+
+# 2. dentro da sessão, inicia a coleta em um diretório novo.
+#    -d obrigatório; sem -q a etapa 6 consulta todos os IPs de origem novos.
+cd ~/Faculdade/TCC/ibr-etl
+other/full_etl.sh -d datasets/e3_full 2>&1 | tee -a logs/coleta_shodan_$(date +%Y%m%d).log
+
+# 3. destaca da sessão: Ctrl+b, depois d  (o processo continua rodando)
+```
+
+Acompanhar / retomar:
+
+```sh
+tmux ls                       # lista sessões
+tmux attach -t ibr-shodan     # reanexa
+tail -f logs/shodan_enrich.log   # progresso da etapa 6 (a cada 1000 linhas)
+```
+
+Encerrar a coleta graciosamente (sem perder cache nem truncar o `.gz`) — o caminho
+exato do marcador é logado por `[full_etl] Marcador de parada da etapa 6`:
+
+```sh
+touch datasets/execucao_pipeline_e3_full_<data_hora>/stop_shodan
+```
+
+> Alternativa sem `tmux` (mesmo efeito de desacoplar do terminal): `nohup other/full_etl.sh -d datasets/e3_full > logs/coleta_shodan.log 2>&1 &`.
+> Nesse caso, use `--stop-file` com caminho conhecido para encerrar depois, e
+> `tail -f logs/shodan_enrich.log` para acompanhar. Prefira `tmux` por permitir
+> reanexar e ver o progresso interativo.
+
+---
+
+## 8. Coleta rotativa entre agregados (`other/shodan_rotation.sh`)
+
+Quando um único agregado é grande demais para ser esgotado em tempo hábil, o
+rotacionador alterna entre as 26 regiões: processa até N consultas **novas** por
+região e passa para a próxima, avançando a cada rodada (cache hits são pulados sem
+rate-limit). Regiões esgotadas viram `.done` e são ignoradas; ao final, gera o CSV
+de 28 colunas numa passada rápida.
+
+Uso típico (coleta longa, em `tmux`):
+
+```sh
+tmux new -s ibr-rotacao
+cd ~/Faculdade/TCC/ibr-etl
+other/shodan_rotation.sh -d datasets/e3_full -q 1000 2>&1 | tee -a logs/rotacao_shodan_$(date +%Y%m%d).log
+# Ctrl+b, d para destacar
+```
+
+- `-q 1000`: até 1000 consultas **novas** por região por rodada.
+- `-o <dir>`: reaproveita um diretório existente para **retomar**.
+- `-c <cache>`: cache compartilhado (padrão do módulo: `logs/shodan_cache.json`).
+- `-p <N>`: limita pacotes por captura na extração (útil em teste).
+- `-r <R>`: número máximo de rodadas (padrão: até concluir tudo ou `--stop-file`).
+- `-s <arq>`: marcador de parada (padrão `<work-dir>/stop_shodan`).
+
+Encerrar graciosamente (o caminho é logado em `[rotacao] Marcador de parada`):
+
+```sh
+touch datasets/rotacao_shodan_e3_full_<data_hora>/stop_shodan
+```
+
+### 8.1 Teste offline (0 créditos) com pcaps sintéticos
+
+Pré-povoe um cache temporário com os IPs de origem das capturas para que a etapa 6
+não faça nenhuma consulta à API. Gere pcaps mínimos (Ethernet+IPv4+UDP) e rode o
+rotacionador:
+
+```sh
+mkdir -p /tmp/opencode/rot_ds
+# ... gerar e3_reg-a.pcap.gz e e3_reg-b.pcap.gz com IPs de origem distintos ...
+# ... criar /tmp/opencode/rot_cache.json com esses IPs de origem já "found" ...
+other/shodan_rotation.sh -d /tmp/opencode/rot_ds -q 5 \
+    -c /tmp/opencode/rot_cache.json -o /tmp/opencode/rot_work
+```
+
+Verificações:
+
+- exit 0; `[rotacao] Todas as regiões concluídas.`;
+- `regions/<região>/.done` presente para cada região;
+- `rotacao.log` não vazio;
+- `zcat <work>/output.enriched.csv.gz | head -1 | awk -F, '{print NF}'` → 18;
+- `zcat <work>/output.shodan.csv.gz | head -1 | awk -F, '{print NF}'` → 28;
+- nenhuma chamada de API (`API calls: 0` no `logs/shodan_enrich.log`).
+
+> **Retomada:** rode de novo com o mesmo `-o <dir>` — regiões `.done` são puladas e
+> a saída final é regerada.
+>
+> **Caminho de limite (`--max-new-queries` → exit 10):** validado pela verificação
+> offline da seção 2.7; com IPs já no cache nenhuma região atinge o limite, então o
+> ramo de "pular para a próxima região" não é exercitado no teste de 0 créditos.

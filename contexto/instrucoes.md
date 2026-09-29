@@ -140,13 +140,15 @@ de decidir. Novas implementações devem registrar seus testes conforme a seçã
 Os datasets estão localizados em:
 
 ```text
-datasets/e3/
+datasets/e3_raw/   # capturas brutas individuais (nomenclatura padrão)
+datasets/e3_full/  # capturas agregadas por região AWS
 ```
 
-O dataset contém capturas brutas individuais (~21.300 `.pcap.gz`, ~42.600 arquivos
-contando `.pcap.txt`) e possui grande volume de dados (~37 GiB) — **não deve ser
-listado, lido, aberto ou escaneado**. Essa é uma regra de segurança/integridade
-definida no `AGENTS.md` e prevalece sobre qualquer outra instrução deste arquivo.
+O `e3_raw` contém capturas brutas individuais (~21.300 `.pcap.gz`, ~42.600 arquivos
+contando `.pcap.txt`) e o conjunto possui grande volume de dados (~37 GiB) — **não
+deve ser listado, lido, aberto ou escaneado**. Essa é uma regra de
+segurança/integridade definida no `AGENTS.md` e prevalece sobre qualquer outra
+instrução deste arquivo.
 
 Para compreender a estrutura dos dados, use apenas:
 

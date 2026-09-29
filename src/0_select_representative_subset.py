@@ -11,21 +11,21 @@ dataset inteiro. A estratégia usada é:
 5. geração de um manifesto com o subconjunto escolhido.
 
 Aplica-se a diretórios com capturas brutas na nomenclatura
-<região><az>-<IP>-<data>-<hora> (ex.: a raiz de datasets/e1). Os agregados
-por região (ex.: datasets/e3/e3_<região>.pcap.gz) não são elegíveis — ver
+<região><az>-<IP>-<data>-<hora> (ex.: a raiz de datasets/e3_raw). Os agregados
+por região (ex.: datasets/e3_full/e3_<região>.pcap.gz) não são elegíveis — ver
 contexto/dataset_e3.md.
 
 Uso típico:
 
-  python3 src/0_select_representative_subset.py datasets/e1 \
-      --output datasets/e1_subset \
+  python3 src/0_select_representative_subset.py datasets/e3_raw \
+      --output datasets/e3_subset \
       --max-files 48
 
 Depois disso, o diretório de saída pode ser processado pelo pipeline normal:
 
-  python3 src/1_generate_tshark_csv.py datasets/e1_subset
-  time zcat datasets/e1_subset/output.csv.gz | python src/2_enrich_csv.py \
-      | gzip > datasets/e1_subset/output.enriched.csv.gz
+  python3 src/1_generate_tshark_csv.py datasets/e3_subset
+  time zcat datasets/e3_subset/output.csv.gz | python src/2_enrich_csv.py \
+      | gzip > datasets/e3_subset/output.enriched.csv.gz
 """
 
 from __future__ import annotations

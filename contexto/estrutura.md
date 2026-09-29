@@ -23,12 +23,14 @@ Diretório raiz: `ibr-etl`
 │   ├── Cloud_Telescope.md     # TCC do prof. Bortoluzzi (referência conceitual)
 │   ├── dataset_e3.md            # diferenças entre datasets e uso nos testes (vivo)
 │   ├── estrutura.md           # este arquivo (vivo)
+│   ├── guia_execucao.md       # guia prático: rodar, parar, background, visualizações (vivo)
 │   ├── implementacoes_e_testes.md  # registro histórico de implementações/testes
 │   ├── instrucoes.md          # processo detalhado de trabalho para agentes de IA
 │   ├── pipeline.md            # etapas atuais do pipeline (vivo)
 │   └── TCC_2_ArthurPereira_PosBanca.md  # TCC do Arthur (referência conceitual)
 ├── datasets/
-│   └── e3/
+│   ├── e3_raw/                # capturas brutas individuais (nomenclatura padrão)
+│   └── e3_full/               # capturas agregadas por região AWS (26 arquivos)
 ├── Docker/
 │   ├── docker-compose.yml
 │   └── Dockerfile
@@ -39,8 +41,7 @@ Diretório raiz: `ibr-etl`
 │   ├── retorno.json
 │   ├── shodan_cache.json      # cache Shodan por IP (criado na 1ª execução da etapa 6)
 │   ├── shodan_enrich.log
-│   ├── summarize_radiation_dict_dump.txt
-│   └── trimmed_entries.csv
+│   └── summarize_radiation_dict_dump.txt
 ├── opencode.json              # carrega .opencode/rules.md como instruções
 ├── other/
 │   ├── aggregate_pcaps.sh
@@ -50,6 +51,7 @@ Diretório raiz: `ibr-etl`
 │   ├── generate_capinfos.sh
 │   ├── import_pcaps_onto_securityonion.sh
 │   ├── process_regions.sh
+│   ├── shodan_rotation.sh
 │   └── testawsranges.py
 ├── README.md
 ├── src/
@@ -70,13 +72,20 @@ Diretório raiz: `ibr-etl`
 
 Observações:
 
-- `datasets/e3`: dataset-alvo com ~21.300 capturas brutas `.pcap.gz` (≈42.600 arquivos
-  contando `.pcap.txt`). **Não listar, ler ou escanear** seu conteúdo (ver `AGENTS.md`).
+- `datasets/e3_raw`: dataset-alvo com ~21.300 capturas brutas `.pcap.gz` (≈42.600
+  arquivos contando `.pcap.txt`), elegível para a etapa 0. `datasets/e3_full`: 26
+  capturas agregadas por região AWS (`e3_<região>.pcap.gz`), não elegível para a
+  etapa 0. **Não listar, ler ou escanear** o conteúdo de `datasets/` (ver `AGENTS.md`).
 - `src/7_analyze_results.py`: análise de resultados pós-Shodan (etapa 7; não faz parte do fluxo ETL — lê o CSV de 28 colunas e gera tabelas/gráficos).
 - `datasets/execucao_pipeline_<origem>_<data_hora>/`: diretórios criados a cada
   execução do facilitador `other/full_etl.sh` (links simbólicos das capturas +
-  artefatos `output*`). Cada execução é isolada; nada de execuções anteriores é
-  removido ou alterado.
+  artefatos `output*` e os CSVs/PNGs da análise da etapa 7). Cada execução é
+  isolada; nada de execuções anteriores é removido ou alterado.
+- `datasets/rotacao_shodan_<origem>_<data_hora>/`: diretórios criados pelo
+  rotacionador `other/shodan_rotation.sh`. Contêm `regions/<região>/`
+  (`output.csv.gz`, `output.enriched.csv.gz`, `.done`, `shodan.log`),
+  `rotacao.log` e, ao final, `output.enriched.csv.gz` + `output.shodan.csv.gz`.
+  Reaproveite o diretório com `-o` para retomar uma coleta.
 - `GeoLite2-City.mmdb` (gratuita) existe apenas em `backups/`; o pipeline usa a
   licenciada `GeoIP2-City.mmdb` (`src/2_enrich_csv.py:7`).
 - `logs/shodan_cache.json` é criado na primeira execução da etapa 6 (cache Shodan).
