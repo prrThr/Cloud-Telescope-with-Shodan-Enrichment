@@ -41,7 +41,11 @@ o CSV de 28 colunas refletindo **apenas** o cache acumulado, sem gastar crédito
   - Nova análise `analisar_ganho` (+ constante `CAMPOS_GANHO`): gera
     `ganho_shodan.{csv,png}`, com a contagem de IPs enriquecidos que possuem cada
     metadado adicionado pelo Shodan (org, ISP, ASN, OS, portas, CPEs, CVEs,
-    tags, hostnames) — os campos que não existiam no ETL original.
+    tags, hostnames) — os campos que não existiam no ETL original. O título do
+    gráfico é "Ganho do enriquecimento Shodan — N IPs enriquecidos de TOTAL".
+  - Nova análise `analisar_tags`: gera `tags_distribuicao.{csv,png}` com a
+    contagem de IPs únicos por tag Shodan, destacando cloud/vpn/tor/proxy no
+    gráfico (`plot_barras` ganhou o parâmetro `destaques`).
   - `read_csv_from_stdin` passou a **deduplicar por `ip.src`** durante a leitura
     (memória proporcional ao nº de IPs únicos, não ao de linhas); linhas com nº
     de campos ≠ 28 são ignoradas/contabilizadas. `ler_ips_originais` extrai o 2º
@@ -112,7 +116,11 @@ Resultado obtido:
 - `ganho_shodan.csv` (9.394 IPs enriquecidos com metadados): Organização 100%,
   ISP 100%, Portas abertas 100%, ASN 99,83%, CPEs 66,65%, Tags 57,35%,
   Hostnames 56,47%, CVEs 20,96%, Sistema operacional 15,73%.
-- `comparacao_pipeline.png` removido; `ganho_shodan.png` gerado.
+- `tags_distribuicao.csv` (dentre os 9.394 enriquecidos): cloud 2.986 (31,8%),
+  scanner 1.966 (20,9%), eol-product 793 (8,4%), vpn 211 (2,3%), honeypot 155,
+  proxy 86, tor 9.
+- `comparacao_pipeline.png` removido; `ganho_shodan.png` e
+  `tags_distribuicao.png` gerados.
 
 ### Problemas ou limitações
 

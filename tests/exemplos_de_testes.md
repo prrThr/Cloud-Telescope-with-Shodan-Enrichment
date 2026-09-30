@@ -280,15 +280,17 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 
 > Requer `pandas` e `matplotlib` no venv. Gera, para cada análise, um CSV e/ou PNG:
 > `os_distribution`, `org_ranking`, `isp_ranking`, `top_ports` + `port_cves` (CSV
-> completo; o terminal exibe apenas amostra), `ganho_shodan`, `comparacao_pipeline`
-> (só CSV) e `geo_os_cross`.
+> completo; o terminal exibe apenas amostra), `ganho_shodan`, `tags_distribuicao`,
+> `comparacao_pipeline` (só CSV) e `geo_os_cross`.
 > Colunas: `shodan_os`/`shodan_org`/`shodan_isp`/`porta` + `ips_unicos,percentual`;
 > `port_cves`: `porta,cve,ips_afetados`; `ganho_shodan`:
-> `metadado,ips_unicos,percentual`; `comparacao_pipeline`:
+> `metadado,ips_unicos,percentual`; `tags_distribuicao`:
+> `tag,ips_unicos,percentual`; `comparacao_pipeline`:
 > `categoria,ips_unicos,pct_original`;
 > `geo_os_cross`: `src_country,shodan_os,ips_unicos`.
 > `ganho_shodan` mostra, para cada metadado adicionado pelo Shodan (org, ISP, ASN,
-> OS, portas, CPEs, CVEs, tags, hostnames), quantos IPs enriquecidos o possuem.
+> OS, portas, CPEs, CVEs, tags, hostnames), quantos IPs enriquecidos o possuem;
+> `tags_distribuicao` conta IPs únicos por tag (cloud, vpn, tor, scanner, ...).
 > A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como **universo** de
 > IPs (sem ele, a base é o próprio CSV de entrada) e o `--cache-file`
 > (`logs/shodan_cache.json`) como fonte de verdade.
@@ -322,14 +324,16 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 **Verificações:**
 - exit 0;
 - `os_distribution.csv`, `org_ranking.csv`, `isp_ranking.csv`, `top_ports.csv`,
-  `ganho_shodan.csv`, `comparacao_pipeline.csv` e `geo_os_cross.csv` presentes;
+  `ganho_shodan.csv`, `tags_distribuicao.csv`, `comparacao_pipeline.csv` e
+  `geo_os_cross.csv` presentes;
 - PNGs correspondentes (`os_distribution`, `org_ranking`, `isp_ranking`,
-  `top_ports`, `ganho_shodan`) presentes e não vazios (não há mais
-  `comparacao_pipeline.png`);
+  `top_ports`, `ganho_shodan`, `tags_distribuicao`) presentes e não vazios (não
+  há mais `comparacao_pipeline.png`);
 - `port_cves.csv` presente (com cabeçalho mesmo sem associações);
 - `ganho_shodan.csv` com colunas `metadado,ips_unicos,percentual` e os 9
   metadados (Organização, ISP, ASN, Sistema operacional, Portas abertas, CPEs,
   CVEs, Tags, Hostnames);
+- `tags_distribuicao.csv` com colunas `tag,ips_unicos,percentual`;
 - `comparacao_pipeline.csv` com colunas
   `categoria,ips_unicos,pct_original` e, por padrão, exatamente as duas linhas
   `Com Shodan (enriquecidos)` e `Sem Shodan (não enriquecidos)`;

@@ -205,7 +205,7 @@ def cves_por_porta(df, top_portas, limite=10):
     return agg
 
 
-def plot_barras(df, label_col, titulo, xlabel, output_path, top=15):
+def plot_barras(df, label_col, titulo, xlabel, output_path, top=15, destaques=None):
     """Gera gráfico de barras horizontais (top N) para uma contagem por campo."""
     dados = df.head(top).iloc[::-1].reset_index(drop=True)
     if dados.empty:
@@ -214,7 +214,13 @@ def plot_barras(df, label_col, titulo, xlabel, output_path, top=15):
 
     labels = dados[label_col].astype(str)
     values = dados["ips_unicos"].astype(int)
-    colors = ["#95a5a6" if l == SEM_REGISTRO else "#2ecc71" for l in labels]
+    destaques = destaques or set()
+    colors = [
+        "#e67e22" if l in destaques
+        else "#95a5a6" if l == SEM_REGISTRO
+        else "#2ecc71"
+        for l in labels
+    ]
 
     fig, ax = plt.subplots(figsize=(10, 6))
     bars = ax.barh(labels, values, color=colors)
@@ -387,7 +393,7 @@ def analisar_comparacao(df, caminho_original, caminho_cache, output_dir, detalha
               file=sys.stderr)
 
 
-def analisar_ganho(df, output_dir):
+def analisar_ganho(df, output_dir, total_universo=None):
     """
     Mostra o ganho informacional do Shodan: para cada metadado adicionado pela
     etapa 6 (inexistente no ETL original), conta quantos IPs de origem
@@ -412,11 +418,13 @@ def analisar_ganho(df, output_dir):
     agg.to_csv(csv_path, index=False)
     print(f"Tabela salva: {csv_path}", file=sys.stderr)
 
+    titulo = f"Ganho do enriquecimento Shodan — {total} IPs enriquecidos"
+    if total_universo:
+        titulo += f" de {total_universo}"
+
     png_path = os.path.join(output_dir, "ganho_shodan.png")
     plot_barras(
-        agg, "metadado",
-        f"Ganho do enriquecimento Shodan — IPs de origem com cada metadado "
-        f"({total} enriquecidos)",
+        agg, "metadado", titulo,
         "Número de IPs únicos de origem", png_path, top=len(CAMPOS_GANHO),
     )
 
@@ -427,6 +435,60 @@ def analisar_ganho(df, output_dir):
                   f"({row['percentual']}%)", file=sys.stderr)
     else:
         print("  (nenhum IP enriquecido no cache)", file=sys.stderr)
+
+
+def analisar_tags(df, output_dir):
+    """
+    Distribuição das tags Shodan dos emissores enriquecidos (cloud, tor, vpn,
+    scanner, ...). Conta IPs únicos de origem por tag e gera
+    tags_distribuicao.{csv,png}, destacando cloud/vpn/tor/proxy no gráfico.
+    """
+    sub = df[["ip_src", "shodan_tags"]].copy()
+    sub = sub[sub["shodan_tags"].notna() & (sub["shodan_tags"] != "")]
+    sub["tag"] = sub["shodan_tags"].str.split("|")
+    flat = sub.explode("tag")
+    flat = flat[flat["tag"].astype(str).str.strip() != ""]
+
+    agg = (
+        flat.groupby("tag")["ip_src"]
+        .nunique()
+        .reset_index()
+        .rename(columns={"ip_src": "ips_unicos"})
+    )
+    agg = agg.sort_values("ips_unicos", ascending=False).reset_index(drop=True)
+
+    total_enriquecidos = df["ip_src"].nunique()
+    agg["percentual"] = (
+        (agg["ips_unicos"] / total_enriquecidos * 100).round(2)
+        if total_enriquecidos else 0
+    )
+
+    csv_path = os.path.join(output_dir, "tags_distribuicao.csv")
+    agg.to_csv(csv_path, index=False)
+    print(f"Tabela salva: {csv_path}", file=sys.stderr)
+
+    png_path = os.path.join(output_dir, "tags_distribuicao.png")
+    plot_barras(
+        agg, "tag", "Tags Shodan dos emissores enriquecidos",
+        "Número de IPs únicos de origem", png_path,
+        destaques={"cloud", "vpn", "tor", "proxy"},
+    )
+
+    alvo = {
+        "cloud": "Nuvem (cloud)",
+        "vpn": "VPN",
+        "tor": "Tor",
+        "proxy": "Proxy",
+        "scanner": "Scanner",
+        "honeypot": "Honeypot",
+    }
+    por_tag = dict(zip(agg["tag"], agg["ips_unicos"]))
+    print("\n--- Perfil dos emissores (tags) ---", file=sys.stderr)
+    for tag, nome in alvo.items():
+        if tag in por_tag:
+            print(f"  {nome:<18} {int(por_tag[tag]):>6} IPs", file=sys.stderr)
+
+    imprimir_contagem(agg, "tag", "Tags mais comuns")
 
 
 def analisar_geo_os(df, output_dir):
@@ -602,7 +664,9 @@ def main():
         df, args.original_csv, args.cache_file, output_dir,
         detalhado=args.incluir_nao_enriquecidos,
     )
-    analisar_ganho(df[df["ip_src"].isin(com_dados)], output_dir)
+    df_enriquecido = df[df["ip_src"].isin(com_dados)]
+    analisar_ganho(df_enriquecido, output_dir, total_universo=len(universo))
+    analisar_tags(df_enriquecido, output_dir)
     analisar_geo_os(df_analise, output_dir)
 
 

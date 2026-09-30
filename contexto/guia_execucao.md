@@ -316,6 +316,7 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 | `top_ports.csv` / `.png` | Portas abertas mais comuns |
 | `port_cves.csv` | CVEs associados às portas mais comuns (associação aproximada) |
 | `ganho_shodan.csv` / `.png` | Ganho informacional: IPs enriquecidos com cada metadado do Shodan |
+| `tags_distribuicao.csv` / `.png` | Distribuição de tags Shodan (nuvem/Tor/VPN/scanner...) |
 | `comparacao_pipeline.csv` | Cobertura do enriquecimento Shodan (comparação) |
 | `geo_os_cross.csv` | Distribuição geográfica de origem (país) × OS detectado |
 
@@ -363,6 +364,28 @@ Saída em `ganho_shodan.csv` (`metadado,ips_unicos,percentual`) e
 
 O ETL original fornecia apenas geolocalização (país/cidade/lat/lon) e região
 AWS de destino. O gráfico `ganho_shodan.png` quantifica o que passou a existir.
+
+### 5.6 Perfil dos emissores (`tags_distribuicao`)
+
+Mostra a classificação que o Shodan atribui aos emissores — algo impossível no
+ETL original. Conta IPs únicos de origem por tag (`cloud`, `scanner`, `vpn`,
+`tor`, `proxy`, `honeypot`, ...), destacando nuvem/VPN/Tor/proxy no gráfico.
+
+Saída em `tags_distribuicao.csv` (`tag,ips_unicos,percentual`) e
+`tags_distribuicao.png`. Exemplo real:
+
+| Tag | IPs | % dos enriquecidos |
+|---|---|---|
+| cloud | 2.986 | 31,8% |
+| scanner | 1.966 | 20,9% |
+| eol-product | 793 | 8,4% |
+| vpn | 211 | 2,3% |
+| honeypot | 155 | 1,7% |
+| proxy | 86 | 0,9% |
+| tor | 9 | 0,1% |
+
+Revela que ~1/3 dos emissores identificados são infraestrutura de nuvem e ~21%
+são scanners — percepção que só o Shodan proporciona.
 
 > **Dica — imagens limpas sobre todo o cache (sem OOM e sem gastar créditos):**
 > o `e3_full` tem ~98 milhões de linhas de pacotes; a etapa 7 deduplica por
