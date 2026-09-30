@@ -33,7 +33,8 @@ Artefatos sempre gerados no diretório da execução:
   output.shodan.csv.gz     etapa 6 — enriquecimento Shodan
   *.csv / *.png            etapa 7 — análise de resultados (os_distribution,
                            org_ranking, isp_ranking, top_ports, port_cves,
-                           comparacao_pipeline, geo_os_cross)
+                           ganho_shodan, comparacao_pipeline [só CSV],
+                           geo_os_cross)
 
 Opções:
   -d, --dataset DIR        Diretório de origem das capturas (obrigatório, sem padrão;
@@ -386,7 +387,7 @@ rodar "5 — importação MySQL/MariaDB" etapa5_mysql
 
 log "Execução concluída: $RUN_DIR"
 log "Artefatos gerados:"
-for ARQUIVO in subset_manifest.csv subset_manifest.json output.csv.gz output.enriched.csv.gz output.tex output.shodan.csv.gz output_neo4j.cypher os_distribution.csv org_ranking.csv isp_ranking.csv top_ports.csv port_cves.csv comparacao_pipeline.csv geo_os_cross.csv; do
+for ARQUIVO in subset_manifest.csv subset_manifest.json output.csv.gz output.enriched.csv.gz output.tex output.shodan.csv.gz output_neo4j.cypher os_distribution.csv org_ranking.csv isp_ranking.csv top_ports.csv port_cves.csv ganho_shodan.csv comparacao_pipeline.csv geo_os_cross.csv; do
     if [[ -e "$RUN_DIR/$ARQUIVO" ]]; then
         log "  $RUN_DIR/$ARQUIVO"
     fi

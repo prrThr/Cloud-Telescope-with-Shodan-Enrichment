@@ -613,6 +613,7 @@ def process_pipeline(
     rate_limit: float,
     stop_file: str | None = None,
     max_new_queries: int | None = None,
+    cache_only: bool = False,
 ) -> str:
     """
     Lê CSV enriquecido do stdin (saída de 2_enrich_csv.py), adiciona os
@@ -637,6 +638,10 @@ def process_pipeline(
     NOVAS à API (cache hits não contam), persistindo o cache. Permite alternar
     a coleta entre regiões/agregados compartilhando o mesmo cache.
 
+    cache_only: quando True, IPs ausentes do cache NÃO são consultados na API
+    (zero API calls) e recebem campos Shodan vazios — útil para regenerar o
+    CSV de 28 colunas usando apenas o cache já acumulado.
+
     Retorna o motivo do término: "concluido" (entrada esgotada), "parado"
     (stop_file) ou "limite" (max_new_queries atingido).
     """
@@ -646,6 +651,7 @@ def process_pipeline(
         "cache_hits":     0,
         "api_calls":      0,
         "no_data":        0,
+        "not_queried":    0,
     }
     parou = False
     limite_atingido = False
@@ -685,6 +691,10 @@ def process_pipeline(
         record = cache.get(ipsrc)
         if record is not None:
             stats["cache_hits"] += 1
+        elif cache_only:
+            # cache_only — não consulta a API; IP permanece sem metadados
+            record = _empty_record(ipsrc, reason="not_queried_cache_only")
+            stats["not_queried"] += 1
         else:
             # CSU02 — consulta API e persiste no cache
             record = query_shodan(api, ipsrc)
@@ -738,6 +748,7 @@ def process_pipeline(
     logger.info(f"  Cache hits:          {cs['cache_hits']}")
     logger.info(f"  API calls:           {stats['api_calls']}")
     logger.info(f"  IPs sem dados:       {stats['no_data']}")
+    logger.info(f"  IPs não consultados: {stats['not_queried']}")
     logger.info("─" * 50)
 
     if limite_atingido:
@@ -820,6 +831,13 @@ def main():
              "Usado pelo rotacionador other/shodan_rotation.sh para alternar entre "
              "agregados compartilhando o mesmo cache.",
     )
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Não consulta a API Shodan: IPs ausentes do cache recebem campos "
+             "Shodan vazios (zero API calls). Útil para regenerar o CSV de 28 "
+             "colunas usando apenas o cache já acumulado.",
+    )
 
     args = parser.parse_args()
 
@@ -850,6 +868,7 @@ def main():
             rate_limit=args.rate_limit,
             stop_file=args.stop_file,
             max_new_queries=args.max_new_queries,
+            cache_only=args.cache_only,
         )
         if status == "limite":
             sys.exit(EXIT_CAP_REACHED)

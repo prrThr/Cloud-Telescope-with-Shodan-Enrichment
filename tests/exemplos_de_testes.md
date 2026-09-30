@@ -280,29 +280,59 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 
 > Requer `pandas` e `matplotlib` no venv. Gera, para cada análise, um CSV e/ou PNG:
 > `os_distribution`, `org_ranking`, `isp_ranking`, `top_ports` + `port_cves` (CSV
-> completo; o terminal exibe apenas amostra), `comparacao_pipeline` e `geo_os_cross`.
+> completo; o terminal exibe apenas amostra), `ganho_shodan`, `comparacao_pipeline`
+> (só CSV) e `geo_os_cross`.
 > Colunas: `shodan_os`/`shodan_org`/`shodan_isp`/`porta` + `ips_unicos,percentual`;
-> `port_cves`: `porta,cve,ips_afetados`; `comparacao_pipeline`:
+> `port_cves`: `porta,cve,ips_afetados`; `ganho_shodan`:
+> `metadado,ips_unicos,percentual`; `comparacao_pipeline`:
 > `categoria,ips_unicos,pct_original`;
 > `geo_os_cross`: `src_country,shodan_os,ips_unicos`.
+> `ganho_shodan` mostra, para cada metadado adicionado pelo Shodan (org, ISP, ASN,
+> OS, portas, CPEs, CVEs, tags, hostnames), quantos IPs enriquecidos o possuem.
 > A comparação usa `--original-csv` (CSV de 18 col da etapa 2) como **universo** de
 > IPs (sem ele, a base é o próprio CSV de entrada) e o `--cache-file`
-> (`logs/shodan_cache.json`) como fonte de verdade, separando os IPs em três
-> categorias: *consultados com dados* (`found=true`), *consultados sem dados*
-> (`found=false`) e *não consultados* (ausentes do cache). A análise geográfica gera
+> (`logs/shodan_cache.json`) como fonte de verdade.
+> **Por padrão**, a análise é restrita aos IPs enriquecidos (`found=true`): os
+> rankings OS/org/ISP omitem a categoria `Sem registro` e o `comparacao_pipeline`
+> tem **duas** linhas (`Com Shodan (enriquecidos)` e `Sem Shodan (não
+> enriquecidos)`). Com `--incluir-nao-enriquecidos`, volta ao comportamento antigo
+> (categoria `Sem registro` e as três categorias de cobertura: *consultados com
+> dados*, *consultados sem dados* e *não consultados*). A análise geográfica gera
 > apenas a tabela `geo_os_cross.csv` (país de origem × OS, contagem de IPs únicos);
-> a plotagem em mapa (`geo_os_map.png`) foi descontinuada por ora.
+> a plotagem em mapa (`geo_os_map.png`) foi descontinuada, e o
+> `comparacao_pipeline.png` foi removido (pouco legível).
+>
+> A entrada é **deduplicada por `ip.src`** na leitura (memória proporcional ao nº
+> de IPs únicos, não ao de pacotes); linhas com nº de campos ≠ 28 são ignoradas.
+> Para volumes grandes (o `e3_full` tem ~98 milhões de linhas), o caminho mais
+> rápido é deduplicar antes:
+>
+> ```sh
+> DIR=datasets/rotacao_shodan_e3_full_<data_hora>
+> zcat "$DIR/output.enriched.csv.gz" | awk -F, '!seen[$2]++' | gzip > "$DIR/output.enriched.unique.csv.gz"
+> zcat "$DIR/output.enriched.unique.csv.gz" \
+>   | venv/bin/python src/6_shodan_enrich.py --cache-only \
+>   | gzip > "$DIR/output.shodan.unique.csv.gz"
+> zcat "$DIR/output.shodan.unique.csv.gz" \
+>   | venv/bin/python src/7_analyze_results.py \
+>       --original-csv "$DIR/output.enriched.unique.csv.gz" \
+>       --cache-file logs/shodan_cache.json --output-dir "$DIR"
+> ```
 
 **Verificações:**
 - exit 0;
 - `os_distribution.csv`, `org_ranking.csv`, `isp_ranking.csv`, `top_ports.csv`,
-  `comparacao_pipeline.csv` e `geo_os_cross.csv` presentes;
-- PNGs correspondentes presentes e não vazios;
+  `ganho_shodan.csv`, `comparacao_pipeline.csv` e `geo_os_cross.csv` presentes;
+- PNGs correspondentes (`os_distribution`, `org_ranking`, `isp_ranking`,
+  `top_ports`, `ganho_shodan`) presentes e não vazios (não há mais
+  `comparacao_pipeline.png`);
 - `port_cves.csv` presente (com cabeçalho mesmo sem associações);
+- `ganho_shodan.csv` com colunas `metadado,ips_unicos,percentual` e os 9
+  metadados (Organização, ISP, ASN, Sistema operacional, Portas abertas, CPEs,
+  CVEs, Tags, Hostnames);
 - `comparacao_pipeline.csv` com colunas
-  `categoria,ips_unicos,pct_original` e exatamente as três linhas
-  `Consultados com dados no Shodan`, `Consultados sem dados no Shodan` e
-  `Não consultados`;
+  `categoria,ips_unicos,pct_original` e, por padrão, exatamente as duas linhas
+  `Com Shodan (enriquecidos)` e `Sem Shodan (não enriquecidos)`;
 - `geo_os_cross.csv` presente (colunas `src_country,shodan_os,ips_unicos`).
 
 

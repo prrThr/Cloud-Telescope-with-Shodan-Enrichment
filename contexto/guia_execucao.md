@@ -302,6 +302,9 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
   origem na comparação de cobertura. Sem ele, a base é o próprio CSV de entrada.
 - `--cache-file`: cache Shodan (padrão `logs/shodan_cache.json`), fonte de verdade
   da cobertura.
+- `--incluir-nao-enriquecidos`: restaura o comportamento antigo (mantém a
+  categoria `Sem registro` nos rankings e as três categorias de cobertura).
+  Por padrão, esses dados não coletados são omitidos.
 
 ### 5.3 Artefatos gerados
 
@@ -312,23 +315,78 @@ zcat datasets/e3_subset/output.shodan.csv.gz \
 | `isp_ranking.csv` / `.png` | Ranking de ISPs por IPs únicos de origem |
 | `top_ports.csv` / `.png` | Portas abertas mais comuns |
 | `port_cves.csv` | CVEs associados às portas mais comuns (associação aproximada) |
-| `comparacao_pipeline.csv` / `.png` | Cobertura do enriquecimento Shodan (comparação) |
+| `ganho_shodan.csv` / `.png` | Ganho informacional: IPs enriquecidos com cada metadado do Shodan |
+| `comparacao_pipeline.csv` | Cobertura do enriquecimento Shodan (comparação) |
 | `geo_os_cross.csv` | Distribuição geográfica de origem (país) × OS detectado |
 
 > `geo_os_map.png` foi descontinuado; a análise geográfica gera apenas
 > `geo_os_cross.csv`. As colunas de contagem são `ips_unicos` e `percentual`.
+> O `comparacao_pipeline.png` também foi removido (pouco legível); a cobertura
+> sai em CSV e no terminal.
 
 ### 5.4 Comparação de cobertura (`comparacao_pipeline`)
 
-Separa os IPs únicos de origem do universo (`--original-csv`) em três categorias,
-medidas a partir do cache:
+Por padrão, separa os IPs únicos de origem do universo (`--original-csv`) em
+**duas categorias**, medidas a partir do cache:
 
-- **Consultados com dados no Shodan** — no cache com `found=true`;
-- **Consultados sem dados no Shodan** — no cache com `found=false`;
-- **Não consultados** — ausentes do cache.
+- **Com Shodan (enriquecidos)** — no cache com `found=true`;
+- **Sem Shodan (não enriquecidos)** — demais IPs (agrega *sem dados* +
+  *não consultados*).
 
-Saída em `comparacao_pipeline.csv` (`categoria,ips_unicos,pct_original`) e
-`comparacao_pipeline.png`.
+Saída em `comparacao_pipeline.csv` (`categoria,ips_unicos,pct_original`) e no
+terminal (o PNG foi removido).
+
+Com `--incluir-nao-enriquecidos`, o CSV volta ao formato de **três
+categorias** (*consultados com dados* / *consultados sem dados* / *não
+consultados*) e os rankings OS/org/ISP voltam a exibir a categoria
+`Sem registro`.
+
+### 5.5 Ganho informacional do Shodan (`ganho_shodan`)
+
+Demonstra o que o enriquecimento Shodan adicionou ao ETL. Para cada metadado
+que **não existia** no pipeline original — organização, ISP, ASN, sistema
+operacional, portas abertas, CPEs, CVEs, tags e hostnames — conta quantos IPs
+de origem **enriquecidos** possuem o campo preenchido.
+
+Saída em `ganho_shodan.csv` (`metadado,ips_unicos,percentual`) e
+`ganho_shodan.png` (barras). Exemplo real (cache com ~9,4 mil IPs enriquecidos):
+
+| Metadado | IPs enriquecidos |
+|---|---|
+| Organização / ISP / Portas abertas | ~100% |
+| ASN | ~99,8% |
+| CPEs | ~66,7% |
+| Tags | ~57,3% |
+| Hostnames | ~56,5% |
+| CVEs | ~21,0% |
+| Sistema operacional | ~15,7% |
+
+O ETL original fornecia apenas geolocalização (país/cidade/lat/lon) e região
+AWS de destino. O gráfico `ganho_shodan.png` quantifica o que passou a existir.
+
+> **Dica — imagens limpas sobre todo o cache (sem OOM e sem gastar créditos):**
+> o `e3_full` tem ~98 milhões de linhas de pacotes; a etapa 7 deduplica por
+> `ip.src` automaticamente, mas o caminho mais rápido é deduplicar antes. Gere
+> um universo deduplicado (18 col) e, a partir dele, o 28-col com `--cache-only`:
+>
+> ```sh
+> DIR=datasets/rotacao_shodan_e3_full_<data_hora>
+>
+> # universo deduplicado por IP de origem (feito uma vez)
+> zcat "$DIR/output.enriched.csv.gz" | awk -F, '!seen[$2]++' | gzip > "$DIR/output.enriched.unique.csv.gz"
+>
+> # 28-col usando APENAS o cache (zero consultas novas)
+> zcat "$DIR/output.enriched.unique.csv.gz" \
+>   | venv/bin/python src/6_shodan_enrich.py --cache-only \
+>   | gzip > "$DIR/output.shodan.unique.csv.gz"
+>
+> # imagens
+> zcat "$DIR/output.shodan.unique.csv.gz" \
+>   | venv/bin/python src/7_analyze_results.py \
+>       --original-csv "$DIR/output.enriched.unique.csv.gz" \
+>       --cache-file logs/shodan_cache.json \
+>       --output-dir "$DIR"
+> ```
 
 ---
 

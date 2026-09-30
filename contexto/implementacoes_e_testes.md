@@ -6,6 +6,126 @@ resultado esperado e resultado obtido (seção 10).
 
 ---
 
+## L. Imagens limpas na etapa 7 (sem "Sem registro"/"não consultados"), ganho informacional e `--cache-only` na etapa 6
+
+### Objetivo
+
+As imagens `os_distribution.png`, `org_ranking.png` e `isp_ranking.png` eram
+dominadas pelas categorias "Sem registro" e "não consultados" (a esmagadora
+maioria dos IPs, pois o Shodan só enriquece um subconjunto), tornando-as
+ilegíveis. O objetivo é gerar as visualizações **sem** esses dados não
+coletados, usando o cache Shodan (`found=true`) como fonte de verdade, e
+permitir comparar as duas coletas ("sem Shodan" vs "com Shodan"). O
+`comparacao_pipeline.png` (1,3% vs 98,7%) foi considerado inútil e removido,
+sendo substituído por uma análise explícita de **ganho informacional**
+(`ganho_shodan`), que responde ao objetivo central do TCC: o que o Shodan
+adicionou ao ETL. Adicionalmente, a etapa 6 ganhou `--cache-only` para regenerar
+o CSV de 28 colunas refletindo **apenas** o cache acumulado, sem gastar créditos.
+
+### Alterações realizadas
+
+- `src/7_analyze_results.py`:
+  - Novo flag reverso `--incluir-nao-enriquecidos` (restaura o comportamento
+    antigo). Por padrão, a análise é restrita aos IPs com `found=true` no cache.
+  - `main` lê o cache e o universo (`--original-csv` ou os IPs do CSV) no início,
+    calcula o conjunto `com_dados` e filtra `df` para esses IPs antes das análises
+    (OS/org/ISP/portas/CVEs/geo×OS). Se não houver nenhum IP enriquecido, emite
+    aviso e mantém o comportamento antigo.
+  - `contagem_por_campo` ganhou `drop_empty=True` (descarta campos vazios em vez
+    de rotular "Sem registro"), repassado por `salvar_analise_por_campo`.
+  - `plot_barras` trata DataFrame vazio (sem crash).
+  - `analisar_comparacao` ganhou `detalhado`; por padrão compara **duas
+    categorias** — "Com Shodan (enriquecidos)" vs "Sem Shodan (não
+    enriquecidos)". A geração do `comparacao_pipeline.png` (e a função
+    `plot_comparacao`) foi **removida**; resta o CSV e o resumo no terminal.
+  - Nova análise `analisar_ganho` (+ constante `CAMPOS_GANHO`): gera
+    `ganho_shodan.{csv,png}`, com a contagem de IPs enriquecidos que possuem cada
+    metadado adicionado pelo Shodan (org, ISP, ASN, OS, portas, CPEs, CVEs,
+    tags, hostnames) — os campos que não existiam no ETL original.
+  - `read_csv_from_stdin` passou a **deduplicar por `ip.src`** durante a leitura
+    (memória proporcional ao nº de IPs únicos, não ao de linhas); linhas com nº
+    de campos ≠ 28 são ignoradas/contabilizadas. `ler_ips_originais` extrai o 2º
+    campo sem fatiar a linha inteira. `imprimir_contagem` e o resumo do
+    `geo_os_cross` limitam a saída ao top 20 (antes despejavam todas as
+    categorias/portas no terminal).
+    Sem isso, rodar sobre `output.shodan.csv.gz` do `e3_full` (98.032.823 linhas)
+    era morto por OOM.
+- `src/6_shodan_enrich.py`: novo flag `--cache-only` (e parâmetro
+  `cache_only` em `process_pipeline`); IPs ausentes do cache recebem campos
+  vazios via `_empty_record(..., reason="not_queried_cache_only")` sem consultar
+  a API, com novo contador `not_queried` no relatório.
+- Documentação: `contexto/pipeline.md` (etapas 6 e 7), `contexto/guia_execucao.md`
+  (seções 5.2/5.3/5.4) e `tests/exemplos_de_testes.md`.
+
+### Comportamento esperado
+
+- Padrão: `os_distribution`/`org_ranking`/`isp_ranking` **sem** "Sem registro";
+  `comparacao_pipeline` com duas linhas (Com/Sem Shodan); `ganho_shodan` com os
+  9 metadados adicionados pelo Shodan.
+- `--incluir-nao-enriquecidos`: comportamento antigo (categoria "Sem registro" e
+  três categorias de cobertura).
+- `--cache-only`: zero `API calls`; IPs fora do cache saem com campos Shodan vazios.
+
+### Testes realizados e resultados
+
+Fixtures sintéticas em `/tmp/opencode/t7test` (4 linhas de 28 colunas; cache com
+`1.1.1.1` found=true, `2.2.2.2` found=false, `4.4.4.4` found=true sem OS;
+universo de 5 IPs via `orig.csv`).
+
+Resultado esperado (padrão): `os_distribution` só `Linux` (1); `org_ranking`
+`Org A`/`Org B`; `isp_ranking` `ISP A`/`ISP B`; `comparacao_pipeline`
+`Com Shodan=2` / `Sem Shodan=3`.
+
+Resultado obtido: conforme esperado — sem "Sem registro" nos rankings; comparação
+`Com Shodan (enriquecidos),2,40.0` e `Sem Shodan (não enriquecidos),3,60.0`.
+Com `--incluir-nao-enriquecidos`, "Sem registro" reaparece (OS 3/75%) e a
+cobertura volta a 3 categorias (com dados 2 / sem dados 1 / não consultados 2).
+
+Teste do `--cache-only` (etapa 6): com cache de 2 IPs e 3 linhas de entrada,
+`status=concluido`, `API calls: 0`, `IPs não consultados: 1`; a linha do IP
+found=true saiu enriquecida e as demais com campos vazios.
+
+### Teste em dados reais (`e3_full`, cache acumulado pela rotação)
+
+Comando executado no diretório
+`datasets/rotacao_shodan_e3_full_20260919_103421` (cache de 32.645 IPs):
+
+```sh
+DIR=datasets/rotacao_shodan_e3_full_20260919_103421
+# universo dedup por IP de origem (18 col) — feito uma vez (~1m15s)
+zcat "$DIR/output.enriched.csv.gz" | awk -F, '!seen[$2]++' | gzip > "$DIR/output.enriched.unique.csv.gz"
+# regenera o 28-col só com o cache (zero créditos, ~5s)
+zcat "$DIR/output.enriched.unique.csv.gz" | venv/bin/python src/6_shodan_enrich.py --cache-only | gzip > "$DIR/output.shodan.unique.csv.gz"
+# imagens
+zcat "$DIR/output.shodan.unique.csv.gz" | venv/bin/python src/7_analyze_results.py \
+    --original-csv "$DIR/output.enriched.unique.csv.gz" --cache-file logs/shodan_cache.json --output-dir "$DIR"
+```
+
+Resultado obtido:
+- entrada de 98.032.823 linhas → 724.400 IPs únicos (10 linhas malformadas
+  ignoradas); sem OOM.
+- `--cache-only`: `Cache hits: 28.936`, `API calls: 0`.
+- `comparacao_pipeline.csv`: `Com Shodan (enriquecidos)=9.396 (1,3%)` e
+  `Sem Shodan (não enriquecidos)=715.014 (98,7%)`.
+- `os_distribution`/`org_ranking`/`isp_ranking` sem "Sem registro" (0
+  ocorrências); PNGs regenerados.
+- `ganho_shodan.csv` (9.394 IPs enriquecidos com metadados): Organização 100%,
+  ISP 100%, Portas abertas 100%, ASN 99,83%, CPEs 66,65%, Tags 57,35%,
+  Hostnames 56,47%, CVEs 20,96%, Sistema operacional 15,73%.
+- `comparacao_pipeline.png` removido; `ganho_shodan.png` gerado.
+
+### Problemas ou limitações
+
+- O filtro depende do cache (`found=true`). Sem cache (ou sem IPs com dados), a
+  etapa 7 emite aviso e mantém o comportamento antigo.
+- `geo_os_cross.csv` continua usando `df_analise`, mas ainda rotula como "Sem
+  registro" um IP enriquecido cujo OS seja genuinamente vazio (não é imagem-alvo
+  desta mudança).
+- A regeneração do 28-col via `--cache-only` ainda executa `init_api` (1 chamada
+  `api.info()`, gratuita), pois a etapa 6 valida a chave antes do loop.
+
+---
+
 ## K. Correções nas etapas 1, 2, 3 e 4 (`src/`)
 
 ### Objetivo
@@ -181,6 +301,11 @@ Shodan, separando três categorias.
 - Gráfico `comparacao_pipeline.png` com as três barras.
 - Resumo em stderr "Cobertura do enriquecimento Shodan" com os três números e o
   tamanho do universo.
+
+> **Nota (atualizado pela seção L):** o filtro `found=true` passou a ser o padrão
+> da etapa 7, a cobertura passou a ter 2 categorias por padrão
+> (`--incluir-nao-enriquecidos` restaura as 3) e o `comparacao_pipeline.png` foi
+> removido.
 
 ### Testes realizados e resultados
 
